@@ -46,6 +46,32 @@ uv add "wols[all]"
 - Python 3.12 or later
 - No required dependencies for core module
 
+### Container Image
+
+The WOLS CLI is also available as a container image:
+
+```bash
+# Pull the latest image
+docker pull ghcr.io/wemush/specimen-labels-py:latest
+
+# Run the CLI
+docker run --rm ghcr.io/wemush/specimen-labels-py --version
+
+# Create a specimen
+docker run --rm ghcr.io/wemush/specimen-labels-py create \
+  --species "Pleurotus ostreatus" \
+  --type SUBSTRATE \
+  --json
+
+# Validate a specimen (mount local file)
+docker run --rm -v $(pwd):/data ghcr.io/wemush/specimen-labels-py \
+  validate /data/specimen.json
+
+# Generate QR code
+docker run --rm -v $(pwd):/data ghcr.io/wemush/specimen-labels-py \
+  qr /data/specimen.json --output /data/label.png
+```
+
 ## Quick Examples
 
 ### Create a Specimen (Library)
