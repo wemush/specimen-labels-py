@@ -5,6 +5,8 @@
 
 The official Python implementation of the WeMush Open Labeling Standard (WOLS) v1.1.0 for specimen tracking in mushroom cultivation.
 
+![WOLS CLI Demo](demo/demo.gif)
+
 ## Features
 
 - **Core Module**: Create, parse, validate, and serialize specimen labels
@@ -194,6 +196,19 @@ uv run ruff format --check src tests
 
 # Run type checking
 uv run mypy src
+```
+
+### Regenerating the Demo GIF
+
+The demo GIF is generated using [VHS](https://github.com/charmbracelet/vhs):
+
+```bash
+# Install VHS (macOS)
+brew install vhs
+
+# Regenerate the demo
+cd demo
+vhs demo.tape
 ```
 
 ## License
