@@ -1,7 +1,7 @@
 # WOLS - WeMush Open Labeling Standard
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-yellow.svg)](https://opensource.org/licenses/Apache-2.0)
 
 The official Python implementation of the WeMush Open Labeling Standard (WOLS) v1.1.0 for specimen tracking in mushroom cultivation.
 
@@ -172,4 +172,4 @@ uv run mypy src
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+Apache 2.0 License - see [LICENSE](LICENSE) for details.
