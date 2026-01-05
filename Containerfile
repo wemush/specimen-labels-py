@@ -7,12 +7,8 @@
 FROM python:3.13-slim AS builder
 
 # Install uv for fast package installation
-<<<<<<< Updated upstream
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-=======
 # Pin to specific version for reproducibility and security
 COPY --from=ghcr.io/astral-sh/uv:0.9.21 /uv /uvx /bin/
->>>>>>> Stashed changes
 
 WORKDIR /app
 
