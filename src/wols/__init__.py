@@ -32,7 +32,7 @@ from wols.models.enums import GrowthStage, SpecimenType
 from wols.models.specimen import Specimen, SpecimenRef, Strain
 from wols.models.validation import ValidationError, ValidationResult
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "DEFAULT_HTTPS_BASE_URL",

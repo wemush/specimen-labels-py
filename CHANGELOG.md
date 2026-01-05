@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-01-05
+
+### Added
+
+- Container image published to GitHub Container Registry (ghcr.io)
+- Containerfile for running WOLS CLI in containerized environments
+- Multi-architecture support (linux/amd64, linux/arm64)
+
+### Changed
+
+- Release workflow now builds and publishes container images alongside PyPI packages
+
 ## [0.1.0] - 2026-01-04
 
 ### Added
@@ -25,5 +37,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Full type annotations with PEP 561 support
 - 80%+ test coverage
 
-[Unreleased]: https://github.com/wemush/specimen-labels-py/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/wemush/specimen-labels-py/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/wemush/specimen-labels-py/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/wemush/specimen-labels-py/releases/tag/v0.1.0
