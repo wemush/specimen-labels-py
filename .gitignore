@@ -212,3 +212,7 @@ specs/
 SPECIFICATION.md
 CLAUDE.md
 .github/prompts/local-*.md
+
+# Demo temp files (keep demo.gif and demo.tape)
+demo/specimen.json
+demo/label.png
