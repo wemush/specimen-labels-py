@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
+from enum import Enum
 from typing import Any
 
 from wols.constants import ID_PREFIX, WOLS_VERSION
@@ -12,6 +14,87 @@ from wols.models.validation import ValidationError, ValidationResult
 
 # Valid ID pattern: wemush:{cuid}
 ID_PATTERN = re.compile(rf"^{ID_PREFIX}:[a-z0-9]{{24}}$")
+
+# ULID pattern: 26 characters, Crockford's base32
+ULID_PATTERN = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$", re.IGNORECASE)
+
+# UUID v4 pattern
+UUID_PATTERN = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+# Strict pattern (original CUID format)
+STRICT_PATTERN = re.compile(rf"^{ID_PREFIX}:[a-z0-9]+$")
+
+
+class IdValidationMode(str, Enum):
+    """ID validation mode for flexible ID format support (v1.2.0)."""
+
+    STRICT = "strict"
+    """wemush:[a-z0-9]+ (original CUID format)."""
+
+    ULID = "ulid"
+    """wemush: followed by valid ULID."""
+
+    UUID = "uuid"
+    """wemush: followed by valid UUID v4."""
+
+    ANY = "any"
+    """wemush: followed by any non-empty string."""
+
+
+# Type alias for custom validator functions
+IdValidator = Callable[[str], bool]
+
+
+def validate_specimen_id(
+    id: str,
+    mode: IdValidationMode = IdValidationMode.STRICT,
+    custom_validator: IdValidator | None = None,
+) -> bool:
+    """Validate a specimen ID according to the specified mode.
+
+    Args:
+        id: The specimen ID to validate.
+        mode: Validation mode (strict, ulid, uuid, any).
+        custom_validator: Optional custom validator function.
+
+    Returns:
+        True if valid, False otherwise.
+
+    Example:
+        >>> validate_specimen_id("wemush:abc123def456ghi789jkl012")
+        True
+        >>> validate_specimen_id(
+        ...     "wemush:01ARZ3NDEKTSV4RRFFQ69G5FAV", IdValidationMode.ULID
+        ... )
+        True
+    """
+    # Custom validator takes precedence
+    if custom_validator is not None:
+        return custom_validator(id)
+
+    # Must have wemush: prefix
+    prefix = f"{ID_PREFIX}:"
+    if not id.startswith(prefix):
+        return False
+
+    suffix = id[len(prefix) :]  # Everything after "wemush:"
+
+    if not suffix:
+        return False
+
+    if mode == IdValidationMode.STRICT:
+        return bool(STRICT_PATTERN.match(id))
+    elif mode == IdValidationMode.ULID:
+        return bool(ULID_PATTERN.match(suffix))
+    elif mode == IdValidationMode.UUID:
+        return bool(UUID_PATTERN.match(suffix))
+    elif mode == IdValidationMode.ANY:
+        return True
+
+    return False
 
 
 def validate_specimen(
@@ -40,7 +123,7 @@ def validate_specimen(
     # Convert dict to check fields
     data = specimen.to_dict() if isinstance(specimen, Specimen) else specimen
 
-    # Known fields in WOLS schema
+    # Known fields in WOLS schema (v1.2.0 adds _meta)
     known_fields = {
         "@context",
         "@type",
@@ -56,6 +139,7 @@ def validate_specimen(
         "creator",
         "custom",
         "signature",
+        "_meta",  # v1.2.0
     }
 
     # Check for unknown fields
