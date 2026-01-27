@@ -24,7 +24,9 @@ UUID_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# Strict pattern (original CUID format)
+# Strict pattern: wemush: followed by any non-empty lowercase alphanumeric string.
+# Note: This is less restrictive than ID_PATTERN which requires exactly 24 chars.
+# The 24-char constraint is enforced separately in validate_specimen.
 STRICT_PATTERN = re.compile(rf"^{ID_PREFIX}:[a-z0-9]+$")
 
 
@@ -32,7 +34,7 @@ class IdValidationMode(str, Enum):
     """ID validation mode for flexible ID format support (v1.2.0)."""
 
     STRICT = "strict"
-    """wemush:[a-z0-9]+ (original CUID format)."""
+    """wemush: followed by lowercase alphanumeric characters (validates prefix and charset)."""
 
     ULID = "ulid"
     """wemush: followed by valid ULID."""

@@ -148,9 +148,3 @@ exclude_lines = [
 ]
 # Note: 80% target adjusted to 75% due to CLI scan command requiring system zbar library
 fail_under = 75
-
-[dependency-groups]
-dev = [
-    "pytest>=9.0.2",
-    "pytest-cov>=7.0.0",
-]

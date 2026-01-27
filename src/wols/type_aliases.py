@@ -7,6 +7,9 @@ from __future__ import annotations
 
 from wols.models.enums import SpecimenType
 
+# Module-level set of canonical type values for efficient lookup
+_CANONICAL_TYPE_VALUES: frozenset[str] = frozenset(t.value for t in SpecimenType)
+
 # Built-in alias registry mapping platform names to WOLS types
 _TYPE_ALIAS_REGISTRY: dict[str, SpecimenType] = {
     # Culture aliases
@@ -89,8 +92,8 @@ def resolve_type_alias(type_or_alias: str) -> str:
     """
     upper = type_or_alias.upper()
 
-    # Already a valid type?
-    if upper in [t.value for t in SpecimenType]:
+    # Already a valid type? Use module-level set for O(1) lookup
+    if upper in _CANONICAL_TYPE_VALUES:
         return upper
 
     # Check alias registry

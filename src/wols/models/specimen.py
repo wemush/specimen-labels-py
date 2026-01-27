@@ -165,10 +165,11 @@ class Specimen:
                 created = datetime.fromisoformat(created_value.replace("Z", "+00:00"))
 
         # Parse _meta field (v1.2.0)
+        # Use dict copy to preserve arbitrary keys (including non-identifier keys)
         meta_value = data.get("_meta")
         meta: SpecimenMeta | None = None
         if meta_value is not None and isinstance(meta_value, dict):
-            meta = SpecimenMeta(**meta_value)  # type: ignore[typeddict-item]
+            meta = dict(meta_value)  # type: ignore[assignment]
 
         return cls(
             id=data["id"],

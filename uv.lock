@@ -921,12 +921,6 @@ qr = [
     { name = "qrcode", extra = ["pil"] },
 ]
 
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-cov" },
-]
-
 [package.metadata]
 requires-dist = [
     { name = "cryptography", marker = "extra == 'crypto'", specifier = ">=42.0" },
@@ -944,9 +938,3 @@ requires-dist = [
     { name = "wols", extras = ["qr", "crypto", "cli"], marker = "extra == 'all'" },
 ]
 provides-extras = ["qr", "crypto", "cli", "all", "dev"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=9.0.2" },
-    { name = "pytest-cov", specifier = ">=7.0.0" },
-]

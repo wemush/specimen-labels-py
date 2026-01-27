@@ -53,7 +53,13 @@ def normalize_generation(
 
     # Handle parental generation specially
     if trimmed in ("P", "P1"):
-        return "0" if generation_format == GenerationFormat.NUMERIC else "P"
+        if generation_format == GenerationFormat.NUMERIC:
+            return "0"
+        if generation_format == GenerationFormat.PRESERVE:
+            # Preserve the original string (return stripped but not normalized)
+            return generation.strip()
+        # For FILIAL format, canonicalize to "P"
+        return "P"
 
     match = GENERATION_PARSE_PATTERN.match(trimmed)
     if not match:

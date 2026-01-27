@@ -153,18 +153,12 @@ class TestImportErrorBranches:
         # Re-import to test with mocked import
         import importlib
 
-        import wols.environment
-
-        importlib.reload(wols.environment)
+        wols_environment = importlib.import_module("wols.environment")
+        importlib.reload(wols_environment)
 
         # The function should return False when import fails
-        # But we need to test the actual function behavior
-        from wols.environment import is_crypto_supported
-
-        # Force reimport to pick up the mocked version
-        # This is tricky - the function itself does the import
-        # So we just verify the return type
-        result = is_crypto_supported()
+        # Access the function via the reloaded module
+        result = wols_environment.is_crypto_supported()
         assert isinstance(result, bool)
 
     def test_supports_typing_extensions_mock_import_error(
