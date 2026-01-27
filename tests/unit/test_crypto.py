@@ -122,6 +122,35 @@ class TestEncryptDecrypt:
         with pytest.raises(WolsEncryptionError):
             decrypt_specimen("YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo=", encryption_key)
 
+    def test_invalid_payload_base64(self, encryption_key: bytes) -> None:
+        """Test that invalid base64 payload raises error."""
+        from wols.crypto import decrypt_specimen
+
+        with pytest.raises(WolsEncryptionError) as exc_info:
+            decrypt_specimen("not-valid-base64!!!", encryption_key)
+        assert "INVALID_PAYLOAD" in str(exc_info.value)
+
+    def test_payload_too_short(self, encryption_key: bytes) -> None:
+        """Test that payload shorter than 12 bytes raises error."""
+        from wols.crypto import decrypt_specimen
+
+        # Short base64 payload (less than 12 bytes after decoding)
+        short_payload = base64.b64encode(b"short").decode()
+        with pytest.raises(WolsEncryptionError) as exc_info:
+            decrypt_specimen(short_payload, encryption_key)
+        assert "INVALID_PAYLOAD" in str(exc_info.value)
+
+    def test_base64_key_wrong_length(self, crypto_specimen: Specimen) -> None:
+        """Test that base64 key decoding to wrong length raises error."""
+        from wols.crypto import encrypt_specimen
+
+        # Valid base64 but wrong length when decoded (16 bytes instead of 32)
+        wrong_length_key = base64.b64encode(b"0123456789abcdef").decode()
+        with pytest.raises(WolsEncryptionError) as exc_info:
+            encrypt_specimen(crypto_specimen, wrong_length_key)
+        assert "INVALID_KEY" in str(exc_info.value)
+        assert "32 bytes" in str(exc_info.value)
+
 
 class TestEncryptFields:
     """Tests for encrypt_specimen_fields function."""
