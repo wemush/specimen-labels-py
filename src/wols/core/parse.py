@@ -163,3 +163,49 @@ def parse_compact_url(url: str) -> SpecimenRef:
         stage=stage,
         params=query_params,
     )
+
+
+def parse_compact_url_or_throw(url: str) -> SpecimenRef:
+    """Parse a compact URL, raising WolsParseError on failure.
+
+    This is an alias for parse_compact_url that makes the throwing
+    behavior explicit in the function name.
+
+    Args:
+        url: The compact URL to parse.
+
+    Returns:
+        Parsed SpecimenRef.
+
+    Raises:
+        WolsParseError: If parsing fails.
+
+    Example:
+        >>> ref = parse_compact_url_or_throw("web+wemush://v1/abc123?s=PO")
+        >>> print(ref.id)
+        'abc123'
+    """
+    return parse_compact_url(url)
+
+
+def parse_compact_url_or_none(url: str) -> SpecimenRef | None:
+    """Parse a compact URL, returning None on failure.
+
+    Args:
+        url: The compact URL to parse.
+
+    Returns:
+        Parsed SpecimenRef or None if parsing failed.
+
+    Example:
+        >>> ref = parse_compact_url_or_none("web+wemush://v1/abc123?s=PO")
+        >>> print(ref.id if ref else "Failed")
+        'abc123'
+        >>> ref = parse_compact_url_or_none("invalid://url")
+        >>> print(ref)
+        None
+    """
+    try:
+        return parse_compact_url(url)
+    except WolsParseError:
+        return None

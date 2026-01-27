@@ -1,5 +1,7 @@
 """Tests for wols models."""
 
+from __future__ import annotations
+
 import pytest
 
 from wols import (
@@ -42,15 +44,18 @@ class TestGrowthStage:
     """Tests for GrowthStage enum."""
 
     def test_all_stages_exist(self) -> None:
-        """Verify all growth stages are defined."""
+        """Verify all growth stages are defined (v1.2.0: 7 stages)."""
         assert GrowthStage.INOCULATION == "INOCULATION"
+        assert GrowthStage.INCUBATION == "INCUBATION"  # v1.2.0
         assert GrowthStage.COLONIZATION == "COLONIZATION"
+        assert GrowthStage.PRIMORDIA == "PRIMORDIA"  # v1.2.0
         assert GrowthStage.FRUITING == "FRUITING"
+        assert GrowthStage.SENESCENCE == "SENESCENCE"  # v1.2.0
         assert GrowthStage.HARVEST == "HARVEST"
 
     def test_stage_count(self) -> None:
-        """Verify correct number of stages."""
-        assert len(GrowthStage) == 4
+        """Verify correct number of stages (v1.2.0: 7 stages)."""
+        assert len(GrowthStage) == 7
 
     def test_invalid_stage_raises(self) -> None:
         """Test that invalid stages raise ValueError."""
@@ -91,6 +96,57 @@ class TestStrain:
         strain = Strain.from_dict(data)
         assert strain.name == "Blue Oyster"
         assert strain.generation == 3
+
+    def test_to_dict_with_clonal_generation(self) -> None:
+        """Test to_dict includes clonalGeneration when set."""
+        strain = Strain(name="Blue Oyster", clonal_generation=2)
+        result = strain.to_dict()
+        assert result["name"] == "Blue Oyster"
+        assert result["clonalGeneration"] == 2
+
+    def test_to_dict_with_lineage(self) -> None:
+        """Test to_dict includes lineage when set."""
+        strain = Strain(name="Blue Oyster", lineage="Parent Strain A")
+        result = strain.to_dict()
+        assert result["lineage"] == "Parent Strain A"
+
+    def test_to_dict_with_source(self) -> None:
+        """Test to_dict includes source when set."""
+        strain = Strain(name="Blue Oyster", source="Wild clone")
+        result = strain.to_dict()
+        assert result["source"] == "Wild clone"
+
+    def test_to_dict_full_strain(self) -> None:
+        """Test to_dict with all fields set."""
+        strain = Strain(
+            name="Blue Oyster",
+            generation=3,
+            clonal_generation=2,
+            lineage="Parent A",
+            source="Lab culture",
+        )
+        result = strain.to_dict()
+        assert result["name"] == "Blue Oyster"
+        assert result["generation"] == 3
+        assert result["clonalGeneration"] == 2
+        assert result["lineage"] == "Parent A"
+        assert result["source"] == "Lab culture"
+
+    def test_from_dict_with_all_fields(self) -> None:
+        """Test from_dict with all fields."""
+        data = {
+            "name": "Blue Oyster",
+            "generation": 3,
+            "clonalGeneration": 2,
+            "lineage": "Parent A",
+            "source": "Lab culture",
+        }
+        strain = Strain.from_dict(data)
+        assert strain.name == "Blue Oyster"
+        assert strain.generation == 3
+        assert strain.clonal_generation == 2
+        assert strain.lineage == "Parent A"
+        assert strain.source == "Lab culture"
 
 
 class TestSpecimen:
@@ -133,6 +189,96 @@ class TestSpecimen:
         assert specimen.type == SpecimenType.SUBSTRATE
         assert specimen.strain is not None
         assert specimen.strain.name == "Blue Oyster"
+
+    def test_from_dict_with_string_strain(self) -> None:
+        """Test creating specimen from dict with string strain."""
+        data = {
+            "id": "wemush:abc123def456ghijklmnopqr",
+            "type": "CULTURE",
+            "species": "Pleurotus ostreatus",
+            "strain": "Blue Oyster",
+        }
+        specimen = Specimen.from_dict(data)
+        assert specimen.strain is not None
+        assert specimen.strain.name == "Blue Oyster"
+
+    def test_from_dict_with_datetime_created(self) -> None:
+        """Test creating specimen from dict with datetime object."""
+        from datetime import UTC, datetime
+
+        created_time = datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC)
+        data = {
+            "id": "wemush:abc123def456ghijklmnopqr",
+            "type": "CULTURE",
+            "species": "Pleurotus ostreatus",
+            "created": created_time,
+        }
+        specimen = Specimen.from_dict(data)
+        assert specimen.created is not None
+        assert specimen.created == created_time
+
+    def test_from_dict_with_iso_string_created(self) -> None:
+        """Test creating specimen from dict with ISO string created."""
+        data = {
+            "id": "wemush:abc123def456ghijklmnopqr",
+            "type": "CULTURE",
+            "species": "Pleurotus ostreatus",
+            "created": "2024-01-15T10:30:00Z",
+        }
+        specimen = Specimen.from_dict(data)
+        assert specimen.created is not None
+        assert specimen.created.year == 2024
+        assert specimen.created.month == 1
+        assert specimen.created.day == 15
+
+    def test_from_dict_with_stage(self) -> None:
+        """Test creating specimen from dict with stage."""
+        data = {
+            "id": "wemush:abc123def456ghijklmnopqr",
+            "type": "SUBSTRATE",
+            "species": "Pleurotus ostreatus",
+            "stage": "COLONIZATION",
+        }
+        specimen = Specimen.from_dict(data)
+        assert specimen.stage == GrowthStage.COLONIZATION
+
+    def test_to_dict_with_stage(self) -> None:
+        """Test to_dict includes stage when set."""
+        specimen = Specimen(
+            id="wemush:abc123def456ghijklmnopqr",
+            version="1.2.0",
+            type=SpecimenType.SUBSTRATE,
+            species="Pleurotus ostreatus",
+            stage=GrowthStage.PRIMORDIA,
+        )
+        result = specimen.to_dict()
+        assert result["stage"] == "PRIMORDIA"
+
+    def test_to_dict_with_all_optional_fields(self) -> None:
+        """Test to_dict includes all optional fields when set."""
+        from datetime import UTC, datetime
+
+        specimen = Specimen(
+            id="wemush:abc123def456ghijklmnopqr",
+            version="1.2.0",
+            type=SpecimenType.SUBSTRATE,
+            species="Pleurotus ostreatus",
+            strain=Strain(name="Blue Oyster"),
+            stage=GrowthStage.COLONIZATION,
+            created=datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+            batch="BATCH-001",
+            organization="WeMush Labs",
+            creator="test-user",
+            custom={"temp": 72},
+            signature="sig123",
+        )
+        result = specimen.to_dict()
+        assert result["batch"] == "BATCH-001"
+        assert result["organization"] == "WeMush Labs"
+        assert result["creator"] == "test-user"
+        assert result["custom"] == {"temp": 72}
+        assert result["signature"] == "sig123"
+        assert "created" in result
 
 
 class TestSpecimenRef:

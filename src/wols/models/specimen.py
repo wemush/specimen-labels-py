@@ -1,16 +1,35 @@
 """WOLS specimen data models.
 
-Contains Specimen, Strain, and SpecimenRef dataclasses.
+Contains Specimen, Strain, SpecimenRef dataclasses and SpecimenMeta TypedDict.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, TypedDict
 
 from wols.constants import WOLS_CONTEXT, WOLS_VERSION
 from wols.models.enums import GrowthStage, SpecimenType
+
+
+class SpecimenMeta(TypedDict, total=False):
+    """Metadata for specimen round-trip preservation (v1.2.0).
+
+    The _meta namespace is reserved for implementation-specific metadata
+    that should be preserved through import/export operations.
+
+    Attributes:
+        source_id: Original ID from source system.
+        imported_at: ISO 8601 timestamp of import.
+        source_system: Name of the source system.
+        schema_version: Schema version of source data.
+    """
+
+    source_id: str
+    imported_at: str
+    source_system: str
+    schema_version: str
 
 
 @dataclass(frozen=True)
@@ -62,7 +81,7 @@ class Specimen:
 
     Attributes:
         id: Unique identifier (format: wemush:{cuid}).
-        version: WOLS spec version (always "1.1.0").
+        version: WOLS spec version (currently "1.2.0").
         type: Specimen type.
         species: Scientific species name.
         strain: Optional genetic info.
@@ -73,6 +92,7 @@ class Specimen:
         creator: Creator identifier.
         custom: Namespace for custom fields.
         signature: Digital signature.
+        _meta: Reserved namespace for round-trip metadata (v1.2.0).
     """
 
     id: str
@@ -87,6 +107,7 @@ class Specimen:
     creator: str | None = None
     custom: dict[str, Any] | None = None
     signature: str | None = None
+    _meta: SpecimenMeta | None = None  # v1.2.0
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dictionary with JSON-LD context."""
@@ -115,6 +136,8 @@ class Specimen:
             result["custom"] = self.custom
         if self.signature is not None:
             result["signature"] = self.signature
+        if self._meta is not None:
+            result["_meta"] = dict(self._meta)
         return result
 
     @classmethod
@@ -141,6 +164,13 @@ class Specimen:
             else:
                 created = datetime.fromisoformat(created_value.replace("Z", "+00:00"))
 
+        # Parse _meta field (v1.2.0)
+        # Use dict copy to preserve arbitrary keys (including non-identifier keys)
+        meta_value = data.get("_meta")
+        meta: SpecimenMeta | None = None
+        if meta_value is not None and isinstance(meta_value, dict):
+            meta = dict(meta_value)  # type: ignore[assignment]
+
         return cls(
             id=data["id"],
             version=data.get("version", WOLS_VERSION),
@@ -154,6 +184,7 @@ class Specimen:
             creator=data.get("creator"),
             custom=data.get("custom"),
             signature=data.get("signature"),
+            _meta=meta,
         )
 
 

@@ -9,7 +9,7 @@ from enum import Enum
 from typing import Literal
 
 # WOLS specification version
-WOLS_VERSION = "1.1.0"
+WOLS_VERSION = "1.2.0"
 
 # JSON-LD context URL
 WOLS_CONTEXT = "https://wemush.com/wols/v1"
@@ -76,11 +76,14 @@ SPECIES_CODES: dict[str, str] = {
 # Reverse mapping: scientific name to code
 SPECIES_NAMES: dict[str, str] = {v: k for k, v in SPECIES_CODES.items()}
 
-# Stage codes for compact URL format
+# Stage codes for compact URL format (v1.2.0 - 7 stages)
 STAGE_CODES: dict[str, str] = {
     "INO": "INOCULATION",
+    "INC": "INCUBATION",  # NEW v1.2.0
     "COL": "COLONIZATION",
+    "PRI": "PRIMORDIA",  # NEW v1.2.0
     "FRU": "FRUITING",
+    "SEN": "SENESCENCE",  # NEW v1.2.0
     "HAR": "HARVEST",
 }
 
