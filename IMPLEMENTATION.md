@@ -7,8 +7,8 @@
 > - `@wemush/wols` (npm) — TypeScript/JavaScript
 > - `wols` (PyPI) — Python
 >
-> **Specification Version**: 1.1.0
-> **Date**: January 4, 2026
+> **Specification Version**: 1.2.0
+> **Date**: January 28, 2026
 
 ---
 
@@ -33,7 +33,7 @@
 
 ### Design Goals
 
-1. **Spec Compliance**: Libraries MUST produce and consume JSON-LD compliant WOLS v1.1.0 specimens
+1. **Spec Compliance**: Libraries MUST produce and consume JSON-LD compliant WOLS v1.2.0 specimens
 2. **Type Safety**: Full TypeScript types / Python type hints with strict validation
 3. **Zero Dependencies** (core): Minimal dependencies for the core parser/validator
 4. **QR Optional**: QR code generation/scanning as optional peer dependencies
@@ -117,7 +117,22 @@ from typing import Optional, Dict, Any, Literal
 from datetime import datetime
 
 SpecimenType = Literal["CULTURE", "SPAWN", "SUBSTRATE", "FRUITING", "HARVEST"]
-GrowthStage = Literal["INOCULATION", "COLONIZATION", "FRUITING", "HARVEST"]
+
+# v1.2.0: Extended growth stages for research-grade precision
+GrowthStage = Literal[
+    "INOCULATION",   # Initial spore/culture introduction
+    "INCUBATION",    # Post-inoculation, pre-visible growth (v1.2.0)
+    "COLONIZATION",  # Active mycelial growth
+    "PRIMORDIA",     # Pin initiation / hyphal knots (v1.2.0)
+    "FRUITING",      # Fruiting body development
+    "SENESCENCE",    # End-of-life monitoring (v1.2.0)
+    "HARVEST",       # Final harvest stage
+]
+
+GROWTH_STAGES: tuple[GrowthStage, ...] = (
+    "INOCULATION", "INCUBATION", "COLONIZATION", "PRIMORDIA",
+    "FRUITING", "SENESCENCE", "HARVEST",
+)
 
 @dataclass
 class Strain:
@@ -198,6 +213,13 @@ def parse_specimen(json_str: str) -> Specimen:
 def parse_compact_url(url: str) -> SpecimenRef:
     """Parse compact wemush:// URL format."""
 
+# v1.2.0: Convenience methods
+def parse_compact_url_or_raise(url: str) -> SpecimenRef:
+    """Parse compact URL, raising WolsParseError on failure."""
+
+def parse_compact_url_or_none(url: str) -> Optional[SpecimenRef]:
+    """Parse compact URL, returning None on failure."""
+
 def validate_specimen(data: dict) -> ValidationResult:
     """Validate a specimen dictionary against the schema."""
 
@@ -206,6 +228,59 @@ def serialize_specimen(specimen: Specimen) -> str:
 
 def to_compact_url(specimen: Specimen) -> str:
     """Generate compact URL for small QR codes."""
+
+# v1.2.0: Type Alias System
+def register_type_alias(alias: str, wols_type: SpecimenType) -> None:
+    """Register a custom type alias."""
+
+def resolve_type_alias(type_or_alias: str) -> str:
+    """Resolve a type alias to its canonical WOLS type."""
+
+def get_type_aliases() -> Dict[str, SpecimenType]:
+    """Get all registered type aliases."""
+
+# v1.2.0: Generation Format
+def normalize_generation(generation: str, format: str = "preserve") -> str:
+    """Normalize a generation string (F1, G1, numeric) to the specified format."""
+
+def is_valid_generation(generation: str) -> bool:
+    """Check if a generation string is valid."""
+
+# v1.2.0: Type Mapping
+def map_to_wols_type(platform_type: str) -> Optional[SpecimenType]:
+    """Map a platform-specific type to a WOLS SpecimenType."""
+
+def map_from_wols_type(wols_type: SpecimenType) -> List[str]:
+    """Get all platform type names for a WOLS SpecimenType."""
+
+def register_platform_type(platform_type: str, wols_type: SpecimenType) -> None:
+    """Register a custom platform type mapping."""
+
+# v1.2.0: Environment Detection
+def is_crypto_supported() -> bool:
+    """Check if cryptographic operations are supported."""
+
+def get_runtime_environment() -> str:
+    """Get the current Python runtime environment."""
+
+# v1.2.0: Migration Utilities
+def compare_versions(a: str, b: str) -> int:
+    """Compare two semantic version strings. Returns -1, 0, or 1."""
+
+def is_outdated(specimen: Union[Specimen, str]) -> bool:
+    """Check if a specimen version is older than the current library version."""
+
+def is_newer(specimen: Union[Specimen, str]) -> bool:
+    """Check if a specimen version is newer than the current library version."""
+
+def migrate(specimen: Specimen) -> Specimen:
+    """Migrate a specimen to the current version."""
+
+def register_migration(from_version: str, to_version: str, handler: Callable) -> None:
+    """Register a migration handler."""
+
+def can_migrate(specimen: Specimen) -> bool:
+    """Check if a specimen can be migrated to the current version."""
 ```
 
 ### Input Types
@@ -531,7 +606,7 @@ src/
 # pyproject.toml
 [project]
 name = "wols"
-version = "1.1.0"
+version = "1.2.0"
 description = "Official WOLS (WeMush Open Labeling Standard) library"
 readme = "README.md"
 license = "MIT"
@@ -594,14 +669,36 @@ wemush_wols/
 | Creation | Create specimen with all fields |
 | Creation | Create specimen with minimal fields |
 | Creation | Strain shorthand expansion |
+| Creation | Create specimen with type alias (v1.2.0) |
+| Creation | Create specimen with `_meta` field (v1.2.0) |
+| Creation | Create specimen with extended growth stage (v1.2.0) |
 | Parsing | Parse valid JSON-LD specimen |
 | Parsing | Parse compact URL format |
 | Parsing | Reject invalid JSON |
 | Parsing | Handle unknown fields gracefully |
+| Parsing | Preserve `_meta` through round-trip (v1.2.0) |
+| Parsing | parse_compact_url_or_raise throws on invalid (v1.2.0) |
+| Parsing | parse_compact_url_or_none returns None on invalid (v1.2.0) |
 | Validation | Validate required fields |
 | Validation | Validate field types |
-| Validation | Validate ID format |
+| Validation | Validate ID format (CUID) |
+| Validation | Validate ID format (ULID) with idMode (v1.2.0) |
+| Validation | Validate ID format (UUID) with idMode (v1.2.0) |
+| Validation | Validate with custom ID validator (v1.2.0) |
 | Validation | Validate date format |
+| Validation | Validate generation formats (F1, G1, numeric) (v1.2.0) |
+| Validation | Validate extended growth stages (v1.2.0) |
+| Type Alias | Register and resolve custom alias (v1.2.0) |
+| Type Alias | Built-in aliases (LIQUID_CULTURE → CULTURE) (v1.2.0) |
+| Type Mapping | map_to_wols_type finds correct type (v1.2.0) |
+| Type Mapping | map_from_wols_type returns platform types (v1.2.0) |
+| Generation | normalize_generation converts formats (v1.2.0) |
+| Generation | is_valid_generation accepts valid patterns (v1.2.0) |
+| Environment | Detect runtime environment (v1.2.0) |
+| Environment | Detect crypto support (v1.2.0) |
+| Migration | compare_versions returns correct order (v1.2.0) |
+| Migration | is_outdated detects old versions (v1.2.0) |
+| Migration | migrate applies registered handlers (v1.2.0) |
 | QR | Generate embedded format QR |
 | QR | Generate compact format QR |
 | QR | Parse QR code image |
@@ -622,6 +719,7 @@ Library versions MUST align with WOLS specification versions:
 |--------------|----------------------|------------------|
 | WOLS 1.0.0   | `@wemush/wols@1.0.x` | Initial release  |
 | WOLS 1.1.0   | `@wemush/wols@1.1.x` | JSON-LD format   |
+| WOLS 1.2.0   | `@wemush/wols@1.2.x` | Integration enhancements, extended growth stages |
 
 ### Release Process
 
