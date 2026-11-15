@@ -281,7 +281,7 @@ class TestEncryptDecrypt:
         url = _raw_url("abc", plaintext, raw_key)
         with pytest.raises(WolsEncryptionError) as exc_info:
             decrypt_specimen_bytes(url, raw_key)
-        assert exc_info.value.code == "INVALID_PAYLOAD"
+        assert exc_info.value.code == "INVALID_PLAINTEXT"
 
 
 class TestDecodeValidation:
@@ -347,7 +347,7 @@ class TestDecodeValidation:
             ("i", "9999", "INSUFFICIENT_ITERATIONS"),
             ("i", "1e5", "INVALID_PARAMETER"),
             ("i", "-100000", "INVALID_PARAMETER"),
-            ("i", "99999999999", "INVALID_PARAMETER"),
+            ("i", "99999999999", "EXCESSIVE_ITERATIONS"),
             ("salt", None, "MISSING_PARAMETER"),
             ("salt", "", "INVALID_PARAMETER"),
         ],
@@ -476,8 +476,9 @@ class TestFieldEncryption:
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
         obj = encrypt_specimen_fields(full_specimen, raw_key, ["custom"])["custom"]
+        aad = f"{full_specimen.id}\ncustom".encode()
         plaintext = AESGCM(raw_key).decrypt(
-            b64url_decode(obj["iv"]), b64url_decode(obj["payload"]), None
+            b64url_decode(obj["iv"]), b64url_decode(obj["payload"]), aad
         )
         assert json.loads(plaintext) == {"temp": 72}
 
@@ -510,7 +511,7 @@ class TestFieldEncryption:
         ("change", "code"),
         [
             ({"algorithm": "AES-128-CBC"}, "UNSUPPORTED_ALGORITHM"),
-            ({"kdf": None}, "MISSING_PARAMETER"),
+            ({"kdf": None}, "LEGACY_FORMAT"),
             ({"iterations": 5000}, "INSUFFICIENT_ITERATIONS"),
             ({"iterations": True}, "INVALID_PARAMETER"),
             ({"salt": None}, "MISSING_PARAMETER"),
