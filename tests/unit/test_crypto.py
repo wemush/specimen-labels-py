@@ -134,6 +134,18 @@ class TestEncryptedUrlFormat:
         assert a["salt"] != b["salt"]
         assert a["e"] != b["e"]
 
+    def test_default_iterations_follow_owasp(self, crypto_specimen: Specimen) -> None:
+        from wols.crypto import DEFAULT_ITERATIONS
+
+        assert DEFAULT_ITERATIONS == 600_000
+        url = encrypt_specimen(crypto_specimen, PASSPHRASE)
+        assert _params(url)["i"] == "600000"
+
+    def test_spec_minimum_allowed_for_speed(self, crypto_specimen: Specimen) -> None:
+        url = encrypt_specimen(crypto_specimen, PASSPHRASE, iterations=100_000)
+        assert _params(url)["i"] == "100000"
+        assert decrypt_specimen(url, PASSPHRASE) == crypto_specimen
+
     def test_custom_iterations(self, crypto_specimen: Specimen) -> None:
         url = encrypt_specimen(crypto_specimen, PASSPHRASE, iterations=150_000)
         assert _params(url)["i"] == "150000"
@@ -287,7 +299,7 @@ class TestDecodeValidation:
         label = parse_encrypted_url(pbkdf2_url)
         assert label.id == "abc123def456ghijklmnopqr"
         assert label.payload.kdf == "pbkdf2"
-        assert label.payload.iterations == 100_000
+        assert label.payload.iterations == 600_000
         assert len(label.payload.iv) == 12
         assert label.signature is None
 

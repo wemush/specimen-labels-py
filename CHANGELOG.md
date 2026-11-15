@@ -29,8 +29,9 @@ contains breaking changes. Read these entries before upgrading a `~=1.2` pin.
     of a base64 blob. It uses AES-256-GCM with a separate random 12-byte `iv`,
     and all values are base64url without padding.
   - A `str` secret is now a passphrase. It selects `kdf=pbkdf2`
-    (PBKDF2-HMAC-SHA256, a random 16-byte salt per label, and 100,000
-    iterations by default). It is no longer a base64-encoded key. A 32-byte
+    (PBKDF2-HMAC-SHA256, a random 16-byte salt per label, and 600,000
+    iterations by default, following OWASP guidance; pass
+    `iterations=100_000`, the spec minimum, for faster scans). It is no longer a base64-encoded key. A 32-byte
     `bytes` key selects `kdf=raw`.
   - `decrypt_specimen()` takes the URL. It rejects fewer than 10,000
     iterations, missing or unexpected `salt`/`i`, unknown `kdf` values, and a
