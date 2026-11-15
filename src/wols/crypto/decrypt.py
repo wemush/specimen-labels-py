@@ -13,7 +13,7 @@ import copy
 import json
 from typing import TYPE_CHECKING, Any
 
-from wols.crypto._aead import key_for_payload, open_payload
+from wols.crypto._aead import field_aad, key_for_payload, open_payload
 from wols.crypto.wire import (
     ENCRYPTED_URL_SCHEMES,
     IV_LENGTH,
@@ -31,18 +31,38 @@ if TYPE_CHECKING:
     from wols.models.specimen import Specimen
 
 _LEGACY_FIELD_PREFIX = "encrypted:"
+_UTF8_BOM = b"\xef\xbb\xbf"
 
-STRUCTURAL_FIELDS: frozenset[str] = frozenset(
+IDENTIFYING_FIELDS: frozenset[str] = frozenset(
     {"@context", "@type", "id", "version", "type", "species"}
 )
-"""Fields that identify a label and are never decrypted in place."""
+"""Fields that identify a label. They are never encrypted, and a label in
+which one of them is an encryption object is refused."""
+
+
+def _parse_plaintext_json(plaintext: bytes, what: str) -> Any:
+    """Parse decrypted UTF-8 JSON, refusing a byte order mark."""
+    if plaintext.startswith(_UTF8_BOM):
+        raise WolsEncryptionError(
+            message=f"{what} starts with a UTF-8 byte order mark",
+            code="INVALID_PLAINTEXT",
+        )
+    try:
+        return json.loads(plaintext.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        raise WolsEncryptionError(
+            message=f"{what} is not UTF-8 JSON: {e}",
+            code="INVALID_PLAINTEXT",
+        ) from e
 
 
 def decrypt_specimen_bytes(url: str, secret: Secret) -> bytes:
     """Decrypt an encrypted-format URL and return the exact plaintext bytes.
 
-    The plaintext must be a JSON object whose ``id`` equals ``wemush:{id}``
-    from the URL path.
+    The plaintext must be UTF-8 JSON without a byte order mark, and a JSON
+    object whose ``id`` equals ``wemush:{id}``, where ``{id}`` is the
+    percent-decoded URL path segment. Every parameter is validated before a
+    key is derived.
 
     Args:
         url: ``wemush://v1/encrypted/{id}?...`` (``web+wemush://`` is also
@@ -57,24 +77,19 @@ def decrypt_specimen_bytes(url: str, secret: Secret) -> bytes:
         WolsEncryptionError: With one of these codes:
             ``AUTHENTICATION_FAILED`` (wrong secret or tampered label),
             ``ID_MISMATCH``, ``INSUFFICIENT_ITERATIONS``,
-            ``MISSING_PARAMETER``, ``UNEXPECTED_PARAMETER``,
-            ``UNSUPPORTED_KDF``, ``INVALID_PARAMETER``, ``INVALID_KEY``,
-            ``INVALID_URL``, ``LEGACY_FORMAT``, or ``INVALID_PAYLOAD``.
+            ``EXCESSIVE_ITERATIONS``, ``MISSING_PARAMETER``,
+            ``UNEXPECTED_PARAMETER``, ``UNSUPPORTED_KDF``,
+            ``INVALID_PARAMETER``, ``INVALID_KEY``, ``INVALID_URL``,
+            ``INVALID_ENCODING``, ``LEGACY_FORMAT``, or ``INVALID_PLAINTEXT``.
     """
     label = parse_encrypted_url(url)
     plaintext = open_payload(label.payload, key_for_payload(label.payload, secret))
 
-    try:
-        data = json.loads(plaintext.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as e:
-        raise WolsEncryptionError(
-            message=f"Decrypted payload is not UTF-8 JSON: {e}",
-            code="INVALID_PAYLOAD",
-        ) from e
+    data = _parse_plaintext_json(plaintext, "Decrypted payload")
     if not isinstance(data, dict):
         raise WolsEncryptionError(
             message="Decrypted payload is not a JSON object",
-            code="INVALID_PAYLOAD",
+            code="INVALID_PLAINTEXT",
         )
     if data.get("id") != label.specimen_id:
         raise WolsEncryptionError(
@@ -151,13 +166,30 @@ def decrypt_specimen_fields(
         A new dictionary with every encrypted field restored. Pass it to
         :meth:`wols.Specimen.from_dict` for a Specimen.
 
+    Each field's ciphertext is authenticated together with the label's
+    ``id`` and the field name (see :func:`~wols.crypto.encrypt_specimen_fields`),
+    so a value swapped between fields or copied from another label fails
+    with ``AUTHENTICATION_FAILED``.
+
     Raises:
-        WolsEncryptionError: If any field fails to decrypt, an identifying
-            field (``id``, ``type``, ...) is encrypted (``INVALID_PARAMETER``),
-            or the label's distinct key derivations together exceed
-            ``MAX_DECODE_ITERATIONS`` PBKDF2 iterations (``INVALID_PARAMETER``,
-            which bounds the work an untrusted label can force).
+        WolsEncryptionError: If any field fails to decrypt
+            (``AUTHENTICATION_FAILED``, ``INVALID_PLAINTEXT``, ...), an
+            identifying field (``id``, ``type``, ...) is an encryption object
+            (``IDENTIFYING_FIELD``), the label has no string ``id``
+            (``INVALID_ID``), or the label's distinct key derivations together
+            exceed ``MAX_DECODE_ITERATIONS`` PBKDF2 iterations
+            (``EXCESSIVE_ITERATIONS``, which bounds the work an untrusted
+            label can force). All of these checks run before any key is
+            derived.
     """
+    for field in IDENTIFYING_FIELDS:
+        if is_encrypted_field(data.get(field)):
+            raise WolsEncryptionError(
+                message=f"Field '{field}' identifies the label and must not be "
+                "encrypted",
+                code="IDENTIFYING_FIELD",
+            )
+
     # Pass 1 (cheap): parse every field object and bound the total PBKDF2
     # work before deriving any key, so an untrusted label is rejected
     # without the decoder spending anything on it.
@@ -166,11 +198,6 @@ def decrypt_specimen_fields(
     for field, value in data.items():
         if not is_encrypted_field(value):
             continue
-        if field in STRUCTURAL_FIELDS:
-            raise WolsEncryptionError(
-                message=f"Field '{field}' identifies the label and cannot be encrypted",
-                code="INVALID_PARAMETER",
-            )
         payload = parse_encrypted_field(value, field=field)
         payloads[field] = payload
         kdf_params.add((payload.kdf, payload.salt, payload.iterations))
@@ -179,7 +206,14 @@ def decrypt_specimen_fields(
         raise WolsEncryptionError(
             message=f"Label requires {total_iterations} PBKDF2 iterations in "
             f"total, more than the decoder limit of {MAX_DECODE_ITERATIONS}",
-            code="INVALID_PARAMETER",
+            code="EXCESSIVE_ITERATIONS",
+        )
+    label_id = data.get("id")
+    if payloads and not isinstance(label_id, str):
+        raise WolsEncryptionError(
+            message="A label with encrypted fields needs a string 'id' to "
+            "authenticate them",
+            code="INVALID_ID",
         )
 
     # Pass 2: derive each distinct key once, then decrypt.
@@ -191,7 +225,9 @@ def decrypt_specimen_fields(
             cache_key = (payload.kdf, payload.salt, payload.iterations)
             if cache_key not in keys:
                 keys[cache_key] = key_for_payload(payload, secret)
-            plaintext = open_payload(payload, keys[cache_key])
+            plaintext = open_payload(
+                payload, keys[cache_key], field_aad(str(label_id), field)
+            )
         elif (
             allow_legacy
             and isinstance(value, str)
@@ -201,13 +237,7 @@ def decrypt_specimen_fields(
         else:
             continue
 
-        try:
-            result[field] = json.loads(plaintext.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as e:
-            raise WolsEncryptionError(
-                message=f"Field '{field}' did not decrypt to UTF-8 JSON: {e}",
-                code="INVALID_PAYLOAD",
-            ) from e
+        result[field] = _parse_plaintext_json(plaintext, f"Field '{field}'")
     return result
 
 

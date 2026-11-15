@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from wols.constants import ID_PREFIX
 from wols.core.validate import validate_specimen_id
-from wols.crypto._aead import prepare_key, seal
+from wols.crypto._aead import field_aad, prepare_key, seal
 from wols.crypto.wire import DEFAULT_ITERATIONS, EncryptedLabel, Secret
 from wols.exceptions import WolsEncryptionError
 
@@ -46,8 +46,10 @@ def encrypt_specimen(
             cleartext.
         secret: A passphrase (``str``), which selects ``kdf=pbkdf2``, or a
             32-byte key (``bytes``), which selects ``kdf=raw``.
-        iterations: PBKDF2 iterations for a passphrase (at least 100,000).
-            Ignored for a raw key.
+        iterations: PBKDF2 iterations for a passphrase. Defaults to 600,000
+            (OWASP guidance). Allowed range is 100,000 (the spec floor, for
+            faster scans at the cost of weaker offline-guessing resistance)
+            to 10,000,000. Ignored for a raw key.
 
     Returns:
         ``wemush://v1/encrypted/{id}?e=...&iv=...&kdf=...[&salt=...&i=...]``
@@ -92,12 +94,20 @@ def encrypt_specimen_fields(
     Every field gets its own random IV. With a passphrase, one random salt
     is generated for the label and shared by its fields.
 
+    Each ciphertext is bound to the label and field by AES-GCM additional
+    data (the label's full ``id``, a line feed, and the field name), so an
+    encrypted value moved to another field or another label fails to
+    decrypt. Identifying fields (``id``, ``type``, ``species``, ...) are
+    never encrypted.
+
     Args:
         specimen: Specimen or JSON-LD dictionary.
         secret: A passphrase (``str``) or a 32-byte key (``bytes``).
         fields: Field names to encrypt (e.g. ``["strain", "custom"]``).
             Fields that are absent or ``None`` are left as they are.
-        iterations: PBKDF2 iterations for a passphrase (at least 100,000).
+        iterations: PBKDF2 iterations for a passphrase. Defaults to 600,000
+            (OWASP guidance). Allowed range is 100,000 (the spec floor, for
+            faster scans) to 10,000,000.
 
     Returns:
         A new JSON-LD dictionary with the fields encrypted. Use
@@ -105,7 +115,8 @@ def encrypt_specimen_fields(
 
     Raises:
         ValueError: If a field name cannot be encrypted.
-        WolsEncryptionError: If the key or passphrase is invalid, or
+        WolsEncryptionError: ``INVALID_ID`` if the label has no valid
+            ``id``, or another code if the key or passphrase is invalid or
             encryption fails.
     """
     for field in fields:
@@ -127,7 +138,16 @@ def encrypt_specimen_fields(
     if not targets:
         return data
 
+    label_id = data.get("id")
+    if not isinstance(label_id, str) or not validate_specimen_id(label_id):
+        raise WolsEncryptionError(
+            message="Field-level encryption needs the label's 'id' "
+            f"('{ID_PREFIX}:' followed by a non-empty suffix), got {label_id!r}",
+            code="INVALID_ID",
+        )
+
     material = prepare_key(secret, iterations)
     for field in targets:
-        data[field] = seal(_compact_json(data[field]), material).to_field_object()
+        payload = seal(_compact_json(data[field]), material, field_aad(label_id, field))
+        data[field] = payload.to_field_object()
     return data

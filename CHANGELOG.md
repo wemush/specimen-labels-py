@@ -9,8 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.3.0] - 2026-11-15
 
-Implements WOLS 1.3.0 (`1.3.0-rc.1`). Every `MUST` and `SHOULD` case in the
-WOLS conformance vectors passes.
+Implements WOLS 1.3.0 (`1.3.0-rc.2`). Every `MUST` and `SHOULD` case in the
+WOLS conformance vectors passes, including `field-encryption.json`.
+
+Field-level ciphertexts made by pre-release 1.3.0 builds (before `rc.2`
+added NFC normalization and field AAD) do not decrypt with this release.
+No such build was published, so no migration is needed.
 
 ### Breaking
 
@@ -29,16 +33,22 @@ contains breaking changes. Read these entries before upgrading a `~=1.2` pin.
     of a base64 blob. It uses AES-256-GCM with a separate random 12-byte `iv`,
     and all values are base64url without padding.
   - A `str` secret is now a passphrase. It selects `kdf=pbkdf2`
-    (PBKDF2-HMAC-SHA256, a random 16-byte salt per label, and 100,000
-    iterations by default). It is no longer a base64-encoded key. A 32-byte
+    (PBKDF2-HMAC-SHA256, a random 16-byte salt per label, and 600,000
+    iterations by default, following OWASP guidance; pass
+    `iterations=100_000`, the spec minimum, for faster scans). It is no longer a base64-encoded key. A 32-byte
     `bytes` key selects `kdf=raw`.
   - `decrypt_specimen()` takes the URL. It rejects fewer than 10,000
     iterations, missing or unexpected `salt`/`i`, unknown `kdf` values, and a
     decrypted `id` that doesn't match the URL path.
+  - Passphrases are normalized to Unicode NFC before UTF-8 encoding and
+    PBKDF2, when encrypting and decrypting.
   - `encrypt_specimen_fields()` returns a JSON-LD `dict` whose fields are
     `{"encrypted": true, "algorithm": "AES-256-GCM", "payload", "iv", "kdf",
     "salt"?, "iterations"?}` objects. It used to return a `Specimen` that
-    silently dropped encrypted `strain` and `stage` values.
+    silently dropped encrypted `strain` and `stage` values. Each ciphertext
+    is bound by AES-GCM additional data to the label's `id` and the field
+    name (`"{id}\n{field}"`), so swapped or copied fields fail to decrypt.
+    The label must have a valid `id`.
   - The 1.2.x nonce-prefixed base64 format is never generated. Read it with
     `decrypt_specimen(..., allow_legacy=True)` or
     `decrypt_specimen_fields(..., allow_legacy=True)`.
@@ -50,8 +60,8 @@ contains breaking changes. Read these entries before upgrading a `~=1.2` pin.
 ### Added
 
 - Conformance tests in `tests/conformance/` that run the vendored WOLS vectors
-  (`embedded`, `primordia`, `generation`, `encrypted`) from open-standard tag
-  `1.3.0-rc.1`.
+  (`embedded`, `primordia`, `generation`, `encrypted`, `field-encryption`)
+  from open-standard tag `1.3.0-rc.2`, checked against its `SHA256SUMS`.
 - `strain.transferDepth` (`Strain.transfer_depth`). It must be a non-negative
   integer, and validation warns when it is less than `clonalGeneration`. It
   round-trips through `to_json()` and `parse_specimen()`.
@@ -87,9 +97,18 @@ contains breaking changes. Read these entries before upgrading a `~=1.2` pin.
   `WolsParseError` instead of leaking `TypeError` or `AttributeError`.
 - ID and base64url checks match the whole string. A trailing newline is
   rejected.
-- `decrypt_specimen_fields` bounds total PBKDF2 work per call, checking it
-  before deriving any key. It refuses encrypted objects on identifying fields
-  (`@context`, `@type`, `id`, `version`, `type`, `species`).
+- `decrypt_specimen_fields` bounds total PBKDF2 work per label (10,000,000
+  iterations across distinct salts), checking it before deriving any key. It
+  refuses encrypted objects on identifying fields (`@context`, `@type`, `id`,
+  `version`, `type`, `species`) with `IDENTIFYING_FIELD`.
+- Encrypted URLs percent-encode the ID as one UTF-8 path segment. Decoding
+  is strict: a malformed escape or invalid UTF-8 raises `INVALID_ENCODING`,
+  and `+` is a literal character.
+- Decoders reject more than 10,000,000 iterations (`EXCESSIVE_ITERATIONS`),
+  a non-decimal `i` (`INVALID_PARAMETER`), and a plaintext with a UTF-8 byte
+  order mark or invalid JSON (`INVALID_PLAINTEXT`). A field object without
+  `kdf` raises `LEGACY_FORMAT`. Generation refuses more than 10,000,000
+  iterations.
 - `create_specimen` has typed overloads, so type checkers require exactly one
   of `type` or `input_type`.
 

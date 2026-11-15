@@ -98,14 +98,16 @@ class TestAnchoredPatterns:
 class TestIterationBounds:
     @pytest.fixture
     def url(self) -> str:
-        return encrypt_specimen(create_specimen(type="CULTURE", species="x"), "pw")
+        return encrypt_specimen(
+            create_specimen(type="CULTURE", species="x"), "pw", iterations=100_000
+        )
 
     @pytest.mark.parametrize("digits", [9, 4301, 10_000])
     def test_huge_iteration_string(self, url: str, digits: int) -> None:
         bad = url.split("&i=")[0] + "&i=" + "9" * digits
         with pytest.raises(WolsEncryptionError) as exc_info:
             parse_encrypted_url(bad)
-        assert exc_info.value.code == "INVALID_PARAMETER"
+        assert exc_info.value.code == "EXCESSIVE_ITERATIONS"
 
     def test_leading_zeros_allowed(self, url: str) -> None:
         padded = url.replace("&i=100000", "&i=000100000")
@@ -139,7 +141,7 @@ class TestFieldDecryptBounds:
         }
         with pytest.raises(WolsEncryptionError) as exc_info:
             decrypt_specimen_fields(data, "pw")
-        assert exc_info.value.code == "INVALID_PARAMETER"
+        assert exc_info.value.code == "EXCESSIVE_ITERATIONS"
 
     def test_many_salts_rejected_before_any_derivation(
         self, monkeypatch: pytest.MonkeyPatch
@@ -153,7 +155,7 @@ class TestFieldDecryptBounds:
         fields = {f"f{i}": self._field(os.urandom(16), 2_000_000) for i in range(50)}
         with pytest.raises(WolsEncryptionError) as exc_info:
             decrypt_specimen_fields({**BASE, **fields}, "pw")
-        assert exc_info.value.code == "INVALID_PARAMETER"
+        assert exc_info.value.code == "EXCESSIVE_ITERATIONS"
         assert calls == []
 
     def test_shared_salt_counts_once(self) -> None:
@@ -172,11 +174,11 @@ class TestFieldDecryptBounds:
         assert decrypt_specimen_fields(data, "pw")["batch"] == "B"
 
     @pytest.mark.parametrize("field", ["id", "type", "species", "@context"])
-    def test_structural_field_rejected(self, field: str) -> None:
+    def test_identifying_field_rejected(self, field: str) -> None:
         data = {**BASE, field: self._field(os.urandom(16), 100_000)}
         with pytest.raises(WolsEncryptionError) as exc_info:
             decrypt_specimen_fields(data, "pw")
-        assert exc_info.value.code == "INVALID_PARAMETER"
+        assert exc_info.value.code == "IDENTIFYING_FIELD"
 
 
 class TestBase64KeyStringWarning:
