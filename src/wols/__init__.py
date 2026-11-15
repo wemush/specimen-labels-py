@@ -1,6 +1,6 @@
 """WOLS - WeMush Open Labeling Standard.
 
-Python implementation of the WOLS v1.2.0 specification for specimen tracking.
+Python implementation of the WOLS v1.3.0 specification for specimen tracking.
 
 Example:
     >>> from wols import create_specimen, SpecimenType, to_json
@@ -50,6 +50,7 @@ from wols.exceptions import (
     WolsError,
     WolsParseError,
     WolsValidationError,
+    WolsWarning,
 )
 
 # Generation format (v1.2.0)
@@ -94,7 +95,7 @@ from wols.type_aliases import (
     resolve_type_alias,
 )
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 __all__ = [
     "DEFAULT_HTTPS_BASE_URL",
@@ -119,6 +120,7 @@ __all__ = [
     "WolsError",
     "WolsParseError",
     "WolsValidationError",
+    "WolsWarning",
     "__version__",
     "can_migrate",
     "clear_migrations",

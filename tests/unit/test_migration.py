@@ -78,7 +78,7 @@ class TestIsNewer:
     def test_future_version_is_newer(self) -> None:
         """Verify future versions are newer."""
         assert is_newer("99.0.0") is True
-        assert is_newer("1.3.0") is True
+        assert is_newer("1.4.0") is True
 
 
 class TestGetCurrentVersion:
@@ -88,9 +88,9 @@ class TestGetCurrentVersion:
         """Verify returns current WOLS_VERSION."""
         assert get_current_version() == WOLS_VERSION
 
-    def test_returns_1_2_0(self) -> None:
-        """Verify returns 1.2.0."""
-        assert get_current_version() == "1.2.0"
+    def test_returns_1_3_0(self) -> None:
+        """Verify returns 1.3.0."""
+        assert get_current_version() == "1.3.0"
 
 
 class TestMigrationRegistry:
@@ -114,11 +114,11 @@ class TestMigrationRegistry:
         def dummy_handler(data: dict[str, Any]) -> dict[str, Any]:
             return data
 
-        register_migration("1.1.0", "1.2.0", dummy_handler)
+        register_migration("1.1.0", "1.3.0", dummy_handler)
         migrations = get_migrations()
         assert len(migrations) == 1
         # get_migrations returns (from_version, to_version) tuples, not handlers
-        assert migrations[0] == ("1.1.0", "1.2.0")
+        assert migrations[0] == ("1.1.0", "1.3.0")
 
     def test_register_multiple_migrations(self) -> None:
         """Verify multiple migrations can be registered."""
@@ -130,7 +130,7 @@ class TestMigrationRegistry:
             return data
 
         register_migration("1.0.0", "1.1.0", handler1)
-        register_migration("1.1.0", "1.2.0", handler2)
+        register_migration("1.1.0", "1.3.0", handler2)
 
         migrations = get_migrations()
         assert len(migrations) == 2
@@ -141,7 +141,7 @@ class TestMigrationRegistry:
         def handler(data: dict[str, Any]) -> dict[str, Any]:
             return data
 
-        register_migration("1.1.0", "1.2.0", handler)
+        register_migration("1.1.0", "1.3.0", handler)
         assert len(get_migrations()) == 1
 
         clear_migrations()
@@ -175,7 +175,7 @@ class TestCanMigrate:
         def handler(data: dict[str, Any]) -> dict[str, Any]:
             return data
 
-        register_migration("1.1.0", "1.2.0", handler)
+        register_migration("1.1.0", "1.3.0", handler)
 
         specimen = Specimen(
             id="wemush:test123",
@@ -191,7 +191,7 @@ class TestCanMigrate:
         def handler(data: dict[str, Any]) -> dict[str, Any]:
             return data
 
-        register_migration("1.1.0", "1.2.0", handler)
+        register_migration("1.1.0", "1.3.0", handler)
 
         specimen = Specimen(
             id="wemush:test123",
@@ -218,10 +218,10 @@ class TestMigrate:
 
         def handler(data: dict[str, Any]) -> dict[str, Any]:
             # Update version in the dict
-            data["version"] = "1.2.0"
+            data["version"] = "1.3.0"
             return data
 
-        register_migration("1.1.0", "1.2.0", handler)
+        register_migration("1.1.0", "1.3.0", handler)
 
         old_specimen = Specimen(
             id="wemush:migrate001",
@@ -233,16 +233,16 @@ class TestMigrate:
         result = migrate(old_specimen)
         # migrate returns a dict, not a Specimen
         assert isinstance(result, dict)
-        assert result["version"] == "1.2.0"
+        assert result["version"] == "1.3.0"
 
     def test_migrate_preserves_data(self) -> None:
         """Verify migrate preserves specimen data."""
 
         def handler(data: dict[str, Any]) -> dict[str, Any]:
-            data["version"] = "1.2.0"
+            data["version"] = "1.3.0"
             return data
 
-        register_migration("1.1.0", "1.2.0", handler)
+        register_migration("1.1.0", "1.3.0", handler)
 
         old_specimen = Specimen(
             id="wemush:migrate002",
@@ -268,11 +268,11 @@ class TestMigrate:
             return data
 
         def handler_1_1_to_1_2(data: dict[str, Any]) -> dict[str, Any]:
-            data["version"] = "1.2.0"
+            data["version"] = "1.3.0"
             return data
 
         register_migration("1.0.0", "1.1.0", handler_1_0_to_1_1)
-        register_migration("1.1.0", "1.2.0", handler_1_1_to_1_2)
+        register_migration("1.1.0", "1.3.0", handler_1_1_to_1_2)
 
         old_specimen = Specimen(
             id="wemush:multistep",
@@ -282,13 +282,13 @@ class TestMigrate:
         )
 
         result = migrate(old_specimen)
-        assert result["version"] == "1.2.0"
+        assert result["version"] == "1.3.0"
 
     def test_migrate_no_migration_returns_dict(self) -> None:
         """Verify migrate returns dict representation when no migration needed."""
         specimen = Specimen(
             id="wemush:nomigrate",
-            version="1.2.0",
+            version="1.3.0",
             type=SpecimenType.CULTURE,
             species="Ganoderma lucidum",
         )
@@ -316,10 +316,10 @@ class TestMigrate:
         """Verify migrate works with dict input."""
 
         def handler(data: dict[str, Any]) -> dict[str, Any]:
-            data["version"] = "1.2.0"
+            data["version"] = "1.3.0"
             return data
 
-        register_migration("1.1.0", "1.2.0", handler)
+        register_migration("1.1.0", "1.3.0", handler)
 
         input_dict: dict[str, Any] = {
             "id": "wemush:dictinput",
@@ -329,7 +329,7 @@ class TestMigrate:
         }
 
         result = migrate(input_dict)
-        assert result["version"] == "1.2.0"
+        assert result["version"] == "1.3.0"
 
     def test_migrate_dict_without_version_uses_default(self) -> None:
         """Verify migrate uses 1.0.0 default when version missing."""
@@ -339,11 +339,11 @@ class TestMigrate:
             return data
 
         def handler_1_1_to_1_2(data: dict[str, Any]) -> dict[str, Any]:
-            data["version"] = "1.2.0"
+            data["version"] = "1.3.0"
             return data
 
         register_migration("1.0.0", "1.1.0", handler_1_0_to_1_1)
-        register_migration("1.1.0", "1.2.0", handler_1_1_to_1_2)
+        register_migration("1.1.0", "1.3.0", handler_1_1_to_1_2)
 
         input_dict: dict[str, Any] = {
             "id": "wemush:noversion",
@@ -353,7 +353,7 @@ class TestMigrate:
         }
 
         result = migrate(input_dict)
-        assert result["version"] == "1.2.0"
+        assert result["version"] == "1.3.0"
 
 
 class TestCanMigrateEdgeCases:
@@ -373,7 +373,7 @@ class TestCanMigrateEdgeCases:
         def handler(data: dict[str, Any]) -> dict[str, Any]:
             return data
 
-        register_migration("1.1.0", "1.2.0", handler)
+        register_migration("1.1.0", "1.3.0", handler)
 
         input_dict: dict[str, Any] = {
             "version": "1.1.0",
@@ -393,7 +393,7 @@ class TestCanMigrateEdgeCases:
             return data
 
         register_migration("1.0.0", "1.1.0", handler_1_0_to_1_1)
-        register_migration("1.1.0", "1.2.0", handler_1_1_to_1_2)
+        register_migration("1.1.0", "1.3.0", handler_1_1_to_1_2)
 
         input_dict: dict[str, Any] = {
             # No version - defaults to 1.0.0
@@ -418,7 +418,7 @@ class TestCanMigrateEdgeCases:
         """Verify can_migrate returns True for current version."""
         specimen = Specimen(
             id="wemush:current",
-            version="1.2.0",  # Current version
+            version="1.3.0",  # Current version
             type=SpecimenType.CULTURE,
             species="Test",
         )

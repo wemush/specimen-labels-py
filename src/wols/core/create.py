@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import warnings
 from datetime import UTC, datetime
 from typing import Any
 
 from cuid2 import cuid_wrapper
 
 from wols.constants import ID_PREFIX, WOLS_VERSION
-from wols.exceptions import WolsValidationError
+from wols.exceptions import WolsValidationError, WolsWarning
 from wols.models.enums import GrowthStage, SpecimenType
 from wols.models.specimen import Specimen, Strain
 from wols.models.validation import ValidationError
+from wols.type_aliases import PRIMORDIA_TYPE_ALIAS, resolve_type_alias
 
 # Configure CUID generator
 _cuid = cuid_wrapper()
@@ -19,7 +21,7 @@ _cuid = cuid_wrapper()
 
 def create_specimen(
     *,
-    input_type: SpecimenType | str,
+    type: SpecimenType | str | None = None,
     species: str,
     strain: Strain | str | None = None,
     stage: GrowthStage | str | None = None,
@@ -28,12 +30,21 @@ def create_specimen(
     creator: str | None = None,
     custom: dict[str, Any] | None = None,
     created: datetime | None = None,
+    input_type: SpecimenType | str | None = None,
 ) -> Specimen:
     """Create a new specimen with auto-generated CUID.
 
+    String types are matched case-insensitively against the canonical types
+    and the alias table (e.g. ``"lc"`` resolves to ``CULTURE``).
+
+    ``PRIMORDIA`` is a growth stage, not a type. When it is supplied as the
+    type (WOLS v1.3.0), the type resolves to ``FRUITING``, ``stage`` defaults
+    to ``PRIMORDIA`` if no stage was supplied (a supplied stage is never
+    overridden), and a :class:`~wols.exceptions.WolsWarning` is emitted.
+
     Args:
-        input_type: Specimen type (CULTURE, SPAWN, SUBSTRATE, FRUITING,
-            HARVEST).
+        type: Specimen type (CULTURE, SPAWN, SUBSTRATE, FRUITING, HARVEST)
+            or a type alias.
         species: Scientific species name.
         strain: Strain information (string shorthand or Strain object).
         stage: Current growth stage.
@@ -42,6 +53,8 @@ def create_specimen(
         creator: Creator identifier.
         custom: Custom namespace fields.
         created: Creation timestamp (defaults to current time).
+        input_type: Deprecated spelling of ``type``, kept for compatibility
+            with 1.x callers. Pass one or the other, not both.
 
     Returns:
         A new Specimen instance with generated ID.
@@ -51,7 +64,7 @@ def create_specimen(
 
     Example:
         >>> specimen = create_specimen(
-        ...     input_type=SpecimenType.SUBSTRATE,
+        ...     type=SpecimenType.SUBSTRATE,
         ...     species="Pleurotus ostreatus",
         ...     strain="Blue Oyster",
         ...     stage=GrowthStage.COLONIZATION,
@@ -61,25 +74,34 @@ def create_specimen(
     """
     errors: list[ValidationError] = []
 
+    if type is not None and input_type is not None:
+        raise TypeError("Pass either 'type' or 'input_type', not both")
+    requested_type = type if type is not None else input_type
+    if requested_type is None:
+        raise TypeError("create_specimen() missing required argument: 'type'")
+
     # Validate and convert type
     specimen_type: SpecimenType
-    if isinstance(input_type, str):
+    primordia_as_type = False
+    if isinstance(requested_type, SpecimenType):
+        specimen_type = requested_type
+    else:
+        if requested_type.strip().upper() == PRIMORDIA_TYPE_ALIAS:
+            primordia_as_type = True
         try:
-            specimen_type = SpecimenType(input_type)
+            specimen_type = SpecimenType(resolve_type_alias(requested_type))
         except ValueError:
             valid_types = ", ".join(t.value for t in SpecimenType)
             errors.append(
                 ValidationError(
                     path="type",
                     code="INVALID_VALUE",
-                    message=f"Invalid specimen type '{input_type}'."
+                    message=f"Invalid specimen type '{requested_type}'."
                     f" Valid types: {valid_types}",
                 )
             )
             # Placeholder for type checking
             specimen_type = SpecimenType.CULTURE
-    else:
-        specimen_type = input_type
 
     # Validate species
     if not species or not species.strip():
@@ -113,7 +135,7 @@ def create_specimen(
     if stage is not None:
         if isinstance(stage, str):
             try:
-                growth_stage = GrowthStage(stage)
+                growth_stage = GrowthStage(stage.strip().upper())
             except ValueError:
                 valid_stages = ", ".join(s.value for s in GrowthStage)
                 errors.append(
@@ -160,6 +182,32 @@ def create_specimen(
         raise WolsValidationError(
             message=f"Failed to create specimen: {len(errors)} validation error(s)",
             errors=errors,
+        )
+
+    if primordia_as_type:
+        warnings.warn(
+            "PRIMORDIA is a growth stage, not a specimen type. Resolved to "
+            "type FRUITING"
+            + ("" if growth_stage is not None else " with stage PRIMORDIA")
+            + '; use type="FRUITING", stage="PRIMORDIA" instead.',
+            WolsWarning,
+            stacklevel=2,
+        )
+        if growth_stage is None:
+            growth_stage = GrowthStage.PRIMORDIA
+
+    if (
+        strain_obj is not None
+        and strain_obj.transfer_depth is not None
+        and isinstance(strain_obj.clonal_generation, int)
+        and strain_obj.transfer_depth < strain_obj.clonal_generation
+    ):
+        warnings.warn(
+            f"strain.transferDepth ({strain_obj.transfer_depth}) is less than "
+            f"strain.clonalGeneration ({strain_obj.clonal_generation}); every "
+            "subculture is also a transfer.",
+            WolsWarning,
+            stacklevel=2,
         )
 
     # Generate ID and timestamp

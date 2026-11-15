@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import warnings
 from pathlib import Path
 from typing import Annotated
 
@@ -20,7 +21,9 @@ from wols import (
     to_json,
     validate_specimen,
 )
+from wols.exceptions import WolsWarning
 from wols.models.enums import GrowthStage, SpecimenType
+from wols.type_aliases import resolve_type_alias
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +71,8 @@ def create(
         typer.Option(
             "--type",
             "-t",
-            help="Specimen type (CULTURE, SPAWN, SUBSTRATE, FRUITING, HARVEST)",
+            help="Specimen type (CULTURE, SPAWN, SUBSTRATE, FRUITING, HARVEST)"
+            " or an alias such as LC, GRAIN_SPAWN, or BLOCK",
         ),
     ],
     strain: Annotated[str | None, typer.Option("--strain", help="Strain name")] = None,
@@ -76,7 +80,7 @@ def create(
         str | None,
         typer.Option(
             "--stage",
-            help="Growth stage (INOCULATION, COLONIZATION, FRUITING, HARVEST)",
+            help="Growth stage (INOCULATION, INCUBATION, COLONIZATION, PRIMORDIA, FRUITING, SENESCENCE, HARVEST)",
         ),
     ] = None,
     batch: Annotated[
@@ -113,9 +117,9 @@ def create(
                 )
                 raise typer.Exit(2)
 
-        # Validate type
+        # Validate type (canonical types and aliases, case-insensitive)
         try:
-            specimen_type = SpecimenType(type_.upper())
+            SpecimenType(resolve_type_alias(type_))
         except ValueError as exc:
             valid = ", ".join(t.value for t in SpecimenType)
             err_console.print(
@@ -140,16 +144,21 @@ def create(
                 raise typer.Exit(2) from exc
 
         # Create specimen
-        specimen = create_specimen(
-            input_type=specimen_type,
-            species=species,
-            strain=strain,
-            stage=growth_stage,
-            batch=batch,
-            organization=organization,
-            creator=creator,
-            custom=custom_fields,
-        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", WolsWarning)
+            specimen = create_specimen(
+                type=type_,
+                species=species,
+                strain=strain,
+                stage=growth_stage,
+                batch=batch,
+                organization=organization,
+                creator=creator,
+                custom=custom_fields,
+            )
+        for warning in caught:
+            if issubclass(warning.category, WolsWarning):
+                err_console.print(f"[yellow]Warning: {warning.message}[/yellow]")
 
         # Generate output
         if json_output or output:
@@ -196,7 +205,7 @@ def validate(
         bool, typer.Option("--json", "-j", help="Output validation result as JSON")
     ] = False,
 ) -> None:
-    """Validate specimen JSON against WOLS v1.1.0 schema."""
+    """Validate specimen JSON against WOLS v1.3.0 schema."""
     # Determine input source
     file_path = input_file or input_opt
 

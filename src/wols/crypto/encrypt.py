@@ -1,188 +1,132 @@
-"""Specimen encryption functionality."""
+"""Specimen encryption (WOLS v1.3.0 encrypted format).
+
+Only the v1.3.0 format is generated. The pre-1.3.0 nonce-prefixed base64
+format is never produced.
+"""
 
 from __future__ import annotations
 
-import base64
+import copy
 import json
-import os
 from typing import TYPE_CHECKING, Any
 
-from wols.core.serialize import to_json
+from wols.constants import ID_PREFIX
+from wols.crypto._aead import prepare_key, seal
+from wols.crypto.wire import DEFAULT_ITERATIONS, EncryptedLabel, Secret
 from wols.exceptions import WolsEncryptionError
 
 if TYPE_CHECKING:
     from wols.models.specimen import Specimen
 
+ENCRYPTABLE_FIELDS: frozenset[str] = frozenset(
+    {"strain", "stage", "batch", "organization", "creator", "custom"}
+)
+"""Fields that :func:`encrypt_specimen_fields` can encrypt."""
 
-def _get_key_bytes(key: bytes | str) -> bytes:
-    """Convert key to bytes, handling base64 strings."""
-    if isinstance(key, bytes):
-        if len(key) != 32:
-            raise WolsEncryptionError(
-                message=f"Key must be 32 bytes, got {len(key)}",
-                code="INVALID_KEY",
-            )
-        return key
-    else:
-        try:
-            key_bytes = base64.b64decode(key)
-            if len(key_bytes) != 32:
-                raise WolsEncryptionError(
-                    message=f"Decoded key must be 32 bytes, got {len(key_bytes)}",
-                    code="INVALID_KEY",
-                )
-            return key_bytes
-        except Exception as e:
-            raise WolsEncryptionError(
-                message=f"Failed to decode key: {e}",
-                code="INVALID_KEY",
-            ) from e
+
+def _compact_json(value: Any) -> bytes:
+    return json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
 def encrypt_specimen(
     specimen: Specimen,
-    key: bytes | str,
+    secret: Secret,
+    *,
+    iterations: int = DEFAULT_ITERATIONS,
 ) -> str:
-    """Encrypt a specimen using AES-256-GCM.
+    """Encrypt a specimen into an encrypted-format URL.
+
+    The plaintext is the compact UTF-8 JSON-LD serialization of the
+    specimen. The IV (and, for a passphrase, the salt) is freshly random for
+    every call.
 
     Args:
-        specimen: Specimen to encrypt.
-        key: 32-byte key or base64-encoded key string.
+        specimen: Specimen to encrypt. Its ID suffix appears in the URL in
+            cleartext.
+        secret: A passphrase (``str``), which selects ``kdf=pbkdf2``, or a
+            32-byte key (``bytes``), which selects ``kdf=raw``.
+        iterations: PBKDF2 iterations for a passphrase (at least 100,000).
+            Ignored for a raw key.
 
     Returns:
-        Base64-encoded encrypted payload.
+        ``wemush://v1/encrypted/{id}?e=...&iv=...&kdf=...[&salt=...&i=...]``
 
     Raises:
-        WolsEncryptionError: If encryption fails.
+        WolsEncryptionError: If the key, passphrase, iterations, or ID is
+            invalid, or encryption fails.
 
     Example:
-        >>> key = os.urandom(32)
-        >>> encrypted = encrypt_specimen(specimen, key)
+        >>> url = encrypt_specimen(specimen, "correct horse battery staple")
+        >>> url = encrypt_specimen(specimen, os.urandom(32))
     """
-    try:
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-    except ImportError as e:
-        raise ImportError(
-            "Crypto module not installed. Install with: pip install wols\\[crypto]"
-        ) from e
-
-    key_bytes = _get_key_bytes(key)
-
-    # Serialize specimen to JSON
-    json_data = to_json(specimen)
-    plaintext = json_data.encode("utf-8")
-
-    # Generate nonce (12 bytes for GCM)
-    nonce = os.urandom(12)
-
-    # Encrypt
-    try:
-        aesgcm = AESGCM(key_bytes)
-        ciphertext = aesgcm.encrypt(nonce, plaintext, None)
-    except Exception as e:
+    prefix = f"{ID_PREFIX}:"
+    if not specimen.id.startswith(prefix) or not specimen.id[len(prefix) :]:
         raise WolsEncryptionError(
-            message=f"Encryption failed: {e}",
-            code="ENCRYPTION_ERROR",
-        ) from e
+            message=f"Specimen ID must be '{prefix}' followed by a non-empty "
+            f"suffix, got '{specimen.id}'",
+            code="INVALID_ID",
+        )
 
-    # Combine nonce + ciphertext and encode
-    payload = nonce + ciphertext
-    return base64.b64encode(payload).decode("ascii")
+    material = prepare_key(secret, iterations)
+    payload = seal(_compact_json(specimen.to_dict()), material)
+    return EncryptedLabel(id=specimen.id[len(prefix) :], payload=payload).to_url()
 
 
 def encrypt_specimen_fields(
-    specimen: Specimen,
-    key: bytes | str,
+    specimen: Specimen | dict[str, Any],
+    secret: Secret,
     fields: list[str],
-) -> Specimen:
-    """Encrypt specific fields of a specimen.
+    *,
+    iterations: int = DEFAULT_ITERATIONS,
+) -> dict[str, Any]:
+    """Encrypt individual fields of an embedded label.
+
+    Each listed field's value is replaced with a field-level encryption
+    object::
+
+        {"encrypted": true, "algorithm": "AES-256-GCM", "payload": ...,
+         "iv": ..., "kdf": ..., "salt"?: ..., "iterations"?: ...}
+
+    whose plaintext is the UTF-8 JSON serialization of the field value.
+    Every field gets its own random IV. With a passphrase, one random salt
+    is generated for the label and shared by its fields.
 
     Args:
-        specimen: Specimen with fields to encrypt.
-        key: 32-byte key or base64-encoded key string.
-        fields: Field names to encrypt (e.g., ["strain", "custom"]).
+        specimen: Specimen or JSON-LD dictionary.
+        secret: A passphrase (``str``) or a 32-byte key (``bytes``).
+        fields: Field names to encrypt (e.g. ``["strain", "custom"]``).
+            Fields that are absent or ``None`` are left as they are.
+        iterations: PBKDF2 iterations for a passphrase (at least 100,000).
 
     Returns:
-        New Specimen with specified fields encrypted.
+        A new JSON-LD dictionary with the fields encrypted. Use
+        :func:`~wols.crypto.decrypt_specimen_fields` to restore it.
 
     Raises:
-        WolsEncryptionError: If encryption fails.
-        ValueError: If field name is invalid.
-
-    Example:
-        >>> partial = encrypt_specimen_fields(specimen, key, ["strain"])
-        >>> # strain field is now encrypted, others remain readable
+        ValueError: If a field name cannot be encrypted.
+        WolsEncryptionError: If the key or passphrase is invalid, or
+            encryption fails.
     """
-    try:
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-    except ImportError as e:
-        raise ImportError(
-            "Crypto module not installed. Install with: pip install wols\\[crypto]"
-        ) from e
+    for field in fields:
+        if field not in ENCRYPTABLE_FIELDS:
+            raise ValueError(
+                f"Invalid field '{field}'. "
+                f"Valid fields: {', '.join(sorted(ENCRYPTABLE_FIELDS))}"
+            )
 
     from wols.models.specimen import Specimen
 
-    key_bytes = _get_key_bytes(key)
-
-    # Valid encryptable fields
-    valid_fields = {
-        "strain",
-        "stage",
-        "batch",
-        "organization",
-        "creator",
-        "custom",
-    }
-
-    # Validate fields
-    for field in fields:
-        if field not in valid_fields:
-            raise ValueError(
-                f"Invalid field '{field}'. Valid fields: {', '.join(valid_fields)}"
-            )
-
-    # Get specimen as dict
-    data = specimen.to_dict()
-
-    # Encrypt each field
-    aesgcm = AESGCM(key_bytes)
-
-    def encrypt_value(value: Any) -> str:
-        if value is None:
-            return None  # type: ignore[return-value]
-        plaintext = json.dumps(value).encode("utf-8")
-        nonce = os.urandom(12)
-        ciphertext = aesgcm.encrypt(nonce, plaintext, None)
-        payload = nonce + ciphertext
-        return f"encrypted:{base64.b64encode(payload).decode('ascii')}"
-
-    for field in fields:
-        if field in data and data[field] is not None:
-            try:
-                data[field] = encrypt_value(data[field])
-            except Exception as e:
-                raise WolsEncryptionError(
-                    message=f"Failed to encrypt field '{field}': {e}",
-                    code="ENCRYPTION_ERROR",
-                ) from e
-
-    # Create new specimen from modified data
-    # Note: We need to handle encrypted fields specially
-    return Specimen(
-        id=specimen.id,
-        version=specimen.version,
-        type=specimen.type,
-        species=specimen.species,
-        strain=specimen.strain if "strain" not in fields else None,
-        stage=specimen.stage if "stage" not in fields else None,
-        created=specimen.created,
-        batch=data.get("batch") if "batch" in fields else specimen.batch,
-        organization=(
-            data.get("organization")
-            if "organization" in fields
-            else specimen.organization
-        ),
-        creator=data.get("creator") if "creator" in fields else specimen.creator,
-        custom=data.get("custom") if "custom" in fields else specimen.custom,
-        signature=specimen.signature,
+    data = (
+        specimen.to_dict()
+        if isinstance(specimen, Specimen)
+        else copy.deepcopy(specimen)
     )
+
+    targets = [f for f in dict.fromkeys(fields) if data.get(f) is not None]
+    if not targets:
+        return data
+
+    material = prepare_key(secret, iterations)
+    for field in targets:
+        data[field] = seal(_compact_json(data[field]), material).to_field_object()
+    return data
