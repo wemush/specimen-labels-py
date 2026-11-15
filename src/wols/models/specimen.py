@@ -32,23 +32,84 @@ class SpecimenMeta(TypedDict, total=False):
     schema_version: str
 
 
+def is_non_negative_int(value: object) -> bool:
+    """Return True if value is a non-negative int (bool is rejected)."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def is_encrypted_field(value: object) -> bool:
+    """Return True for a field-level encryption object (WOLS v1.3.0).
+
+    The single predicate shared by validation and decryption, so the two
+    cannot disagree about which fields are encrypted.
+    """
+    return isinstance(value, dict) and value.get("encrypted") is True
+
+
+def transfer_depth_below_clonal(
+    clonal_generation: object, transfer_depth: object
+) -> bool:
+    """Return True when both counters are valid and transferDepth < clonal.
+
+    WOLS v1.3.0 says transferDepth SHOULD be at least clonalGeneration, since
+    every subculture is also a transfer. A violation is a warning, not an
+    error.
+    """
+    return (
+        is_non_negative_int(clonal_generation)
+        and is_non_negative_int(transfer_depth)
+        and transfer_depth < clonal_generation  # type: ignore[operator]
+    )
+
+
 @dataclass(frozen=True)
 class Strain:
     """Strain/lineage information.
 
+    The three counters are independent (WOLS v1.3.0) and must not stand in
+    for one another.
+
     Attributes:
         name: Strain name (e.g., "Blue Oyster").
-        generation: Transfer generation count.
-        clonal_generation: Clonal generation count.
-        lineage: Parent strain reference.
-        source: Origin (lab, wild, vendor).
+        generation: Filial (sexual) generation, e.g. "F1", "P", "G2", or a
+            number. It does not change when the same genetics is transferred.
+        clonal_generation: Culture-to-culture subculture count. The original
+            culture is 0. Expansion to grain or substrate does not increment it.
+        transfer_depth: Total transfers of any kind from the original culture
+            (v1.3.0). The original culture is 0. Serialized as
+            ``transferDepth``.
+        lineage: Parent specimen ID reference.
+        source: Origin (spore, tissue, agar, liquid).
+
+    Raises:
+        ValueError: If ``clonal_generation`` or ``transfer_depth`` is not a
+            non-negative integer, or ``generation`` is not a string or a
+            non-negative integer.
     """
 
     name: str
-    generation: int | None = None
+    generation: str | int | None = None
     clonal_generation: int | None = None
     lineage: str | None = None
     source: str | None = None
+    transfer_depth: int | None = None
+
+    def __post_init__(self) -> None:
+        for wire_name, value in (
+            ("clonalGeneration", self.clonal_generation),
+            ("transferDepth", self.transfer_depth),
+        ):
+            if value is not None and not is_non_negative_int(value):
+                raise ValueError(
+                    f"strain.{wire_name} must be a non-negative integer, got {value!r}"
+                )
+        if self.generation is not None and not (
+            isinstance(self.generation, str) or is_non_negative_int(self.generation)
+        ):
+            raise ValueError(
+                "strain.generation must be a string or a non-negative integer, "
+                f"got {self.generation!r}"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dictionary."""
@@ -57,6 +118,8 @@ class Strain:
             result["generation"] = self.generation
         if self.clonal_generation is not None:
             result["clonalGeneration"] = self.clonal_generation
+        if self.transfer_depth is not None:
+            result["transferDepth"] = self.transfer_depth
         if self.lineage is not None:
             result["lineage"] = self.lineage
         if self.source is not None:
@@ -65,13 +128,24 @@ class Strain:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Strain:
-        """Create from dictionary."""
+        """Create from dictionary.
+
+        Raises:
+            ValueError: If the data is not an object or a field is invalid.
+        """
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"strain must be a string or an object, got {type(data).__name__}"
+            )
+        if not isinstance(data.get("name"), str):
+            raise ValueError("strain.name must be a string")
         return cls(
             name=data["name"],
             generation=data.get("generation"),
             clonal_generation=data.get("clonalGeneration"),
             lineage=data.get("lineage"),
             source=data.get("source"),
+            transfer_depth=data.get("transferDepth"),
         )
 
 
@@ -80,8 +154,8 @@ class Specimen:
     """WOLS specimen entity.
 
     Attributes:
-        id: Unique identifier (format: wemush:{cuid}).
-        version: WOLS spec version (currently "1.2.0").
+        id: Unique identifier: ``wemush:`` followed by any non-empty suffix.
+        version: WOLS spec version (currently "1.3.0").
         type: Specimen type.
         species: Scientific species name.
         strain: Optional genetic info.
@@ -161,8 +235,13 @@ class Specimen:
         if created_value is not None:
             if isinstance(created_value, datetime):
                 created = created_value
-            else:
+            elif isinstance(created_value, str):
                 created = datetime.fromisoformat(created_value.replace("Z", "+00:00"))
+            else:
+                raise ValueError(
+                    "created must be an ISO 8601 string, "
+                    f"got {type(created_value).__name__}"
+                )
 
         # Parse _meta field (v1.2.0)
         # Use dict copy to preserve arbitrary keys (including non-identifier keys)

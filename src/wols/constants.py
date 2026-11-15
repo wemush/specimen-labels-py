@@ -9,7 +9,7 @@ from enum import Enum
 from typing import Literal
 
 # WOLS specification version
-WOLS_VERSION = "1.2.0"
+WOLS_VERSION = "1.3.0"
 
 # JSON-LD context URL
 WOLS_CONTEXT = "https://wemush.com/wols/v1"
