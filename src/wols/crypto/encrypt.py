@@ -46,7 +46,10 @@ def encrypt_specimen(
             cleartext.
         secret: A passphrase (``str``), which selects ``kdf=pbkdf2``, or a
             32-byte key (``bytes``), which selects ``kdf=raw``.
-        iterations: PBKDF2 iterations for a passphrase (at least 100,000).
+        iterations: PBKDF2 iterations for a passphrase. Defaults to 600,000
+            (OWASP guidance); the minimum is 100,000 (the spec floor), which
+            makes scans faster at the cost of weaker offline-guessing
+            resistance.
             Ignored for a raw key.
 
     Returns:
@@ -97,7 +100,10 @@ def encrypt_specimen_fields(
         secret: A passphrase (``str``) or a 32-byte key (``bytes``).
         fields: Field names to encrypt (e.g. ``["strain", "custom"]``).
             Fields that are absent or ``None`` are left as they are.
-        iterations: PBKDF2 iterations for a passphrase (at least 100,000).
+        iterations: PBKDF2 iterations for a passphrase. Defaults to 600,000
+            (OWASP guidance); the minimum is 100,000 (the spec floor), which
+            makes scans faster at the cost of weaker offline-guessing
+            resistance.
 
     Returns:
         A new JSON-LD dictionary with the fields encrypted. Use

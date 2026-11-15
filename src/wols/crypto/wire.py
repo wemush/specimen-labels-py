@@ -35,8 +35,12 @@ TAG_LENGTH = 16
 SALT_LENGTH = 16
 """Salt length used when generating. The spec minimum is 16 bytes."""
 
-DEFAULT_ITERATIONS = 100_000
-"""PBKDF2 iterations used when generating. Generators MUST use >= 100,000."""
+DEFAULT_ITERATIONS = 600_000
+"""PBKDF2 iterations used when generating (OWASP guidance for
+PBKDF2-HMAC-SHA256). Labels are printed with public ciphertext, so the default
+favors resistance to offline guessing. Each passphrase scan costs roughly
+0.1 s on a desktop and more on phones. Pass ``iterations=100_000`` (the spec
+minimum, ``MIN_GENERATE_ITERATIONS``) when scan speed matters more."""
 
 MIN_GENERATE_ITERATIONS = 100_000
 MIN_DECODE_ITERATIONS = 10_000

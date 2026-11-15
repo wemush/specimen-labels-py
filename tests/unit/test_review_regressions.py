@@ -98,7 +98,9 @@ class TestAnchoredPatterns:
 class TestIterationBounds:
     @pytest.fixture
     def url(self) -> str:
-        return encrypt_specimen(create_specimen(type="CULTURE", species="x"), "pw")
+        return encrypt_specimen(
+            create_specimen(type="CULTURE", species="x"), "pw", iterations=100_000
+        )
 
     @pytest.mark.parametrize("digits", [9, 4301, 10_000])
     def test_huge_iteration_string(self, url: str, digits: int) -> None:

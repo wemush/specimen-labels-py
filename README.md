@@ -161,7 +161,7 @@ from wols.crypto import decrypt_specimen, encrypt_specimen
 
 # A passphrase (str) uses kdf=pbkdf2 with a random salt for every label
 url = encrypt_specimen(specimen, "correct horse battery staple")
-# wemush://v1/encrypted/{id}?e=...&iv=...&kdf=pbkdf2&salt=...&i=100000
+# wemush://v1/encrypted/{id}?e=...&iv=...&kdf=pbkdf2&salt=...&i=600000
 
 # A 32-byte key (bytes) uses kdf=raw
 key = os.urandom(32)
@@ -180,6 +180,14 @@ To encrypt individual fields inside an embedded label, use
 `{"encrypted": true, "algorithm": "AES-256-GCM", ...}` object.
 
 Security notes:
+
+- **Iterations and scan speed**: Passphrase labels default to 600,000
+  PBKDF2 iterations, in line with OWASP guidance for PBKDF2-HMAC-SHA256.
+  Every scan pays that cost once: about 0.1 s on a desktop, and more on
+  phones or in browsers. If scan speed matters more than resistance to
+  offline guessing, pass `iterations=100_000`, the spec minimum. The count is
+  stored in each label, so decoders read either. Raw-key labels (`bytes`)
+  skip key derivation entirely.
 
 - **Passphrases**: Labels are printed and their ciphertext is public, so a
   weak passphrase can be guessed offline. Use a long, random passphrase, or a
