@@ -237,7 +237,21 @@ class TestValidateSpecimen:
         )
 
     def test_strain_invalid_generation_type(self) -> None:
-        """Test that non-integer generation is an error."""
+        """Test that a generation that is neither string nor integer is an error."""
+        data = {
+            "id": "wemush:abc123def456ghijklmnopqr",
+            "type": "CULTURE",
+            "species": "Test",
+            "strain": {"name": "Blue Oyster", "generation": 2.5},
+        }
+        result = validate_specimen(data)
+        assert result.valid is False
+        assert any(
+            e.code == "INVALID_TYPE" and "generation" in e.path for e in result.errors
+        )
+
+    def test_strain_unrecognized_generation_notation(self) -> None:
+        """Test that an unrecognized generation string is an error."""
         data = {
             "id": "wemush:abc123def456ghijklmnopqr",
             "type": "CULTURE",
@@ -247,7 +261,8 @@ class TestValidateSpecimen:
         result = validate_specimen(data)
         assert result.valid is False
         assert any(
-            e.code == "INVALID_TYPE" and "generation" in e.path for e in result.errors
+            e.code == "INVALID_VALUE" and e.path == "strain.generation"
+            for e in result.errors
         )
 
     def test_strain_negative_generation(self) -> None:

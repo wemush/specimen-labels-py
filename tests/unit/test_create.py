@@ -25,7 +25,7 @@ class TestCreateSpecimen:
         )
         assert isinstance(specimen, Specimen)
         assert specimen.id.startswith("wemush:")
-        assert specimen.version == "1.2.0"
+        assert specimen.version == "1.3.0"
         assert specimen.type == SpecimenType.CULTURE
         assert specimen.species == "Pleurotus ostreatus"
         assert specimen.created is not None

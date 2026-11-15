@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from wols import IdValidationMode, validate_specimen_id
 
 
@@ -34,33 +36,46 @@ class TestValidateSpecimenIdStrict:
 
     def test_valid_cuid_format(self) -> None:
         """Verify valid CUID format passes."""
-        assert validate_specimen_id("wemush:abc123def456ghi789jkl012") is True
-        assert validate_specimen_id("wemush:abcdefghijklmnopqrstuvwx") is True
+        assert (
+            validate_specimen_id(
+                "wemush:abc123def456ghi789jkl012", IdValidationMode.STRICT
+            )
+            is True
+        )
+        assert (
+            validate_specimen_id(
+                "wemush:abcdefghijklmnopqrstuvwx", IdValidationMode.STRICT
+            )
+            is True
+        )
 
     def test_lowercase_alphanumeric_only(self) -> None:
         """Verify only lowercase alphanumeric is valid."""
-        assert validate_specimen_id("wemush:abc123") is True
-        assert validate_specimen_id("wemush:12345") is True
+        assert validate_specimen_id("wemush:abc123", IdValidationMode.STRICT) is True
+        assert validate_specimen_id("wemush:12345", IdValidationMode.STRICT) is True
 
     def test_uppercase_fails(self) -> None:
         """Verify uppercase characters fail in strict mode."""
-        assert validate_specimen_id("wemush:ABC123") is False
+        assert validate_specimen_id("wemush:ABC123", IdValidationMode.STRICT) is False
 
     def test_missing_prefix_fails(self) -> None:
         """Verify missing wemush: prefix fails."""
-        assert validate_specimen_id("abc123def456ghi789jkl012") is False
+        assert (
+            validate_specimen_id("abc123def456ghi789jkl012", IdValidationMode.STRICT)
+            is False
+        )
 
     def test_wrong_prefix_fails(self) -> None:
         """Verify wrong prefix fails."""
-        assert validate_specimen_id("other:abc123") is False
+        assert validate_specimen_id("other:abc123", IdValidationMode.STRICT) is False
 
     def test_empty_suffix_fails(self) -> None:
         """Verify empty suffix fails."""
-        assert validate_specimen_id("wemush:") is False
+        assert validate_specimen_id("wemush:", IdValidationMode.STRICT) is False
 
     def test_default_mode_is_strict(self) -> None:
         """Verify default mode is STRICT."""
-        assert validate_specimen_id("wemush:abc123") is True
+        assert validate_specimen_id("wemush:abc123", IdValidationMode.STRICT) is True
 
 
 class TestValidateSpecimenIdUlid:
@@ -218,3 +233,39 @@ class TestValidateSpecimenIdCustomValidator:
 
         validate_specimen_id("wemush:test123", custom_validator=capture)
         assert received_id == "wemush:test123"
+
+
+class TestValidateSpecimenIdDefault:
+    """The default mode accepts any non-empty suffix (WOLS v1.3.0)."""
+
+    @pytest.mark.parametrize(
+        "specimen_id",
+        [
+            "wemush:clx1a2b3c4",
+            "wemush:01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "wemush:550e8400-e29b-41d4-a716-446655440000",
+            "wemush:WM-LC-250114-000001",
+            "wemush:x",
+        ],
+    )
+    def test_any_non_empty_suffix_accepted(self, specimen_id: str) -> None:
+        assert validate_specimen_id(specimen_id) is True
+
+    @pytest.mark.parametrize("specimen_id", ["wemush:", "clx1a2b3c4", "other:abc"])
+    def test_missing_prefix_or_suffix_rejected(self, specimen_id: str) -> None:
+        assert validate_specimen_id(specimen_id) is False
+
+
+class TestValidateSpecimenIdCuid:
+    """CUID mode is the opt-in 24-character check used by 1.x."""
+
+    def test_cuid_accepted(self) -> None:
+        assert (
+            validate_specimen_id(
+                "wemush:abc123def456ghi789jkl012", IdValidationMode.CUID
+            )
+            is True
+        )
+
+    def test_short_id_rejected(self) -> None:
+        assert validate_specimen_id("wemush:clx1a2b3c4", IdValidationMode.CUID) is False

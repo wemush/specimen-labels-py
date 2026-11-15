@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "wols"
-version = "1.2.0"
+version = "1.3.0"
 description = "WeMush Open Labeling Standard (WOLS) Python library"
 readme = "README.md"
 license = "Apache-2.0"
@@ -129,6 +129,7 @@ addopts = [
 markers = [
     "slow: marks tests as slow",
     "integration: marks integration tests",
+    "conformance(file, requirement): WOLS conformance vector case",
 ]
 
 # Coverage configuration

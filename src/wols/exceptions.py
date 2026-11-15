@@ -81,6 +81,16 @@ class WolsValidationError(WolsError):
         return f"[{self.code}] {self.message}\n" + "\n".join(error_lines)
 
 
+class WolsWarning(UserWarning):
+    """Warning category for recoverable WOLS input issues.
+
+    Emitted via :func:`warnings.warn` when input is accepted but should be
+    corrected, for example when ``PRIMORDIA`` is supplied as a specimen type.
+    Filter it with ``warnings.simplefilter("error", WolsWarning)`` to make
+    such input fail instead.
+    """
+
+
 class WolsEncryptionError(WolsError):
     """Raised when encryption/decryption fails.
 
