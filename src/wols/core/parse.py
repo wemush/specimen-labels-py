@@ -56,7 +56,8 @@ def parse_specimen(json_str: str) -> Specimen:
 
     try:
         return Specimen.from_dict(data)
-    except (KeyError, ValueError) as e:
+    except (KeyError, ValueError, TypeError, AttributeError) as e:
+        # Untrusted input must only ever surface as WolsParseError.
         raise WolsParseError(
             message=f"Failed to parse specimen: {e}",
             code="PARSE_ERROR",

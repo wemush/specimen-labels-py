@@ -43,7 +43,10 @@ MIN_DECODE_ITERATIONS = 10_000
 """Decoders MUST reject PBKDF2 iteration counts below this value."""
 
 MAX_DECODE_ITERATIONS = 10_000_000
-"""Upper bound on decode, so a crafted label cannot stall the decoder."""
+"""Upper bound per derivation on decode, so a crafted label cannot stall the
+decoder. Also the total PBKDF2 budget for one decrypt_specimen_fields call."""
+
+_MAX_ITERATION_DIGITS = len(str(MAX_DECODE_ITERATIONS))
 
 ENCRYPTED_URL_SCHEMES = frozenset({"wemush", "web+wemush"})
 SUPPORTED_KDFS: tuple[str, ...] = ("pbkdf2", "raw")
@@ -53,8 +56,9 @@ type Secret = str | bytes
 """A passphrase (``str``, selects ``kdf=pbkdf2``) or a 32-byte key
 (``bytes``, selects ``kdf=raw``)."""
 
-_B64URL_RE = re.compile(r"^[A-Za-z0-9_-]*={0,2}$")
-_DECIMAL_RE = re.compile(r"^[0-9]+$")
+# Matched with fullmatch: "$" alone would also accept a trailing newline.
+_B64URL_RE = re.compile(r"[A-Za-z0-9_-]*={0,2}")
+_DECIMAL_RE = re.compile(r"[0-9]+")
 
 
 def b64url_encode(data: bytes) -> str:
@@ -69,7 +73,7 @@ def b64url_decode(value: str, *, name: str = "value") -> bytes:
         WolsEncryptionError: ``INVALID_PARAMETER`` if the value is not
             base64url.
     """
-    if not isinstance(value, str) or not _B64URL_RE.match(value):
+    if not isinstance(value, str) or not _B64URL_RE.fullmatch(value):
         raise WolsEncryptionError(
             message=f"'{name}' is not valid base64url",
             code="INVALID_PARAMETER",
@@ -180,7 +184,15 @@ class EncryptedLabel:
 
 
 def _parse_iterations(value: object, *, name: str) -> int:
-    if isinstance(value, str) and _DECIMAL_RE.match(value):
+    if isinstance(value, str) and _DECIMAL_RE.fullmatch(value):
+        # Bound the length before int(): very long digit strings would hit
+        # Python's int conversion limit and raise a bare ValueError.
+        if len(value.lstrip("0")) > _MAX_ITERATION_DIGITS:
+            raise WolsEncryptionError(
+                message=f"PBKDF2 iteration count in '{name}' exceeds the decoder "
+                f"limit of {MAX_DECODE_ITERATIONS}",
+                code="INVALID_PARAMETER",
+            )
         iterations = int(value)
     elif isinstance(value, int) and not isinstance(value, bool):
         iterations = value

@@ -4,19 +4,51 @@ from __future__ import annotations
 
 import warnings
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, overload
 
 from cuid2 import cuid_wrapper
 
 from wols.constants import ID_PREFIX, WOLS_VERSION
 from wols.exceptions import WolsValidationError, WolsWarning
 from wols.models.enums import GrowthStage, SpecimenType
-from wols.models.specimen import Specimen, Strain
+from wols.models.specimen import Specimen, Strain, transfer_depth_below_clonal
 from wols.models.validation import ValidationError
 from wols.type_aliases import PRIMORDIA_TYPE_ALIAS, resolve_type_alias
 
 # Configure CUID generator
 _cuid = cuid_wrapper()
+
+
+@overload
+def create_specimen(
+    *,
+    type: SpecimenType | str,
+    species: str,
+    strain: Strain | str | None = None,
+    stage: GrowthStage | str | None = None,
+    batch: str | None = None,
+    organization: str | None = None,
+    creator: str | None = None,
+    custom: dict[str, Any] | None = None,
+    created: datetime | None = None,
+    input_type: None = None,
+) -> Specimen: ...
+
+
+@overload
+def create_specimen(
+    *,
+    type: None = None,
+    species: str,
+    strain: Strain | str | None = None,
+    stage: GrowthStage | str | None = None,
+    batch: str | None = None,
+    organization: str | None = None,
+    creator: str | None = None,
+    custom: dict[str, Any] | None = None,
+    created: datetime | None = None,
+    input_type: SpecimenType | str,
+) -> Specimen: ...
 
 
 def create_specimen(
@@ -61,6 +93,8 @@ def create_specimen(
 
     Raises:
         WolsValidationError: If required fields are invalid.
+        TypeError: If neither ``type`` nor ``input_type`` is given, or both
+            are (a calling-convention error, not a data error).
 
     Example:
         >>> specimen = create_specimen(
@@ -196,11 +230,8 @@ def create_specimen(
         if growth_stage is None:
             growth_stage = GrowthStage.PRIMORDIA
 
-    if (
-        strain_obj is not None
-        and strain_obj.transfer_depth is not None
-        and isinstance(strain_obj.clonal_generation, int)
-        and strain_obj.transfer_depth < strain_obj.clonal_generation
+    if strain_obj is not None and transfer_depth_below_clonal(
+        strain_obj.clonal_generation, strain_obj.transfer_depth
     ):
         warnings.warn(
             f"strain.transferDepth ({strain_obj.transfer_depth}) is less than "

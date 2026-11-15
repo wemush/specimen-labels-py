@@ -98,6 +98,11 @@ def register_type_alias(alias: str, wols_type: SpecimenType) -> None:
 def resolve_type_alias(type_or_alias: str) -> str:
     """Resolve a type alias to its canonical WOLS type.
 
+    This resolves the type only. ``"PRIMORDIA"`` returns ``"FRUITING"`` here;
+    the v1.3.0 stage default and warning are applied by
+    :func:`wols.create_specimen`, which every specimen-creating entry point
+    (including ``wols create``) goes through.
+
     Args:
         type_or_alias: A type name or alias to resolve.
 

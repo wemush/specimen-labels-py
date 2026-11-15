@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import os
+import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -17,7 +20,7 @@ from wols.crypto.wire import (
     Secret,
     derive_key,
 )
-from wols.exceptions import WolsEncryptionError
+from wols.exceptions import WolsEncryptionError, WolsWarning
 
 if TYPE_CHECKING:
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -70,6 +73,21 @@ def _check_passphrase(secret: Any) -> str:
     return secret
 
 
+def _looks_like_base64_key(secret: str) -> bool:
+    """True if secret is standard or URL-safe base64 of exactly 32 bytes."""
+    if len(secret) not in (43, 44):
+        return False
+    for altchars in (None, b"-_"):
+        try:
+            padded = secret + "=" * (-len(secret) % 4)
+            decoded = base64.b64decode(padded, altchars=altchars, validate=True)
+        except (binascii.Error, ValueError):
+            continue
+        if len(decoded) == KEY_LENGTH:
+            return True
+    return False
+
+
 def prepare_key(secret: Secret, iterations: int = DEFAULT_ITERATIONS) -> KeyMaterial:
     """Select the KDF from the secret type and produce a fresh key.
 
@@ -78,6 +96,15 @@ def prepare_key(secret: Secret, iterations: int = DEFAULT_ITERATIONS) -> KeyMate
     """
     if isinstance(secret, str):
         passphrase = _check_passphrase(secret)
+        if _looks_like_base64_key(passphrase):
+            warnings.warn(
+                "The secret is a str that looks like a base64-encoded 32-byte "
+                "key. Since wols 1.3.0 a str is a passphrase (kdf=pbkdf2). To "
+                "use it as a raw key (kdf=raw), pass base64.b64decode(key) "
+                "instead.",
+                WolsWarning,
+                stacklevel=3,
+            )
         if (
             isinstance(iterations, bool)
             or not isinstance(iterations, int)

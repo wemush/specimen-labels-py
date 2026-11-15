@@ -15,18 +15,27 @@ from typing import TYPE_CHECKING, Any
 
 from wols.crypto._aead import key_for_payload, open_payload
 from wols.crypto.wire import (
+    ENCRYPTED_URL_SCHEMES,
     IV_LENGTH,
     KEY_LENGTH,
+    MAX_DECODE_ITERATIONS,
+    EncryptedPayload,
     Secret,
     parse_encrypted_field,
     parse_encrypted_url,
 )
 from wols.exceptions import WolsEncryptionError
+from wols.models.specimen import is_encrypted_field
 
 if TYPE_CHECKING:
     from wols.models.specimen import Specimen
 
 _LEGACY_FIELD_PREFIX = "encrypted:"
+
+STRUCTURAL_FIELDS: frozenset[str] = frozenset(
+    {"@context", "@type", "id", "version", "type", "species"}
+)
+"""Fields that identify a label and are never decrypted in place."""
 
 
 def decrypt_specimen_bytes(url: str, secret: Secret) -> bytes:
@@ -108,7 +117,8 @@ def decrypt_specimen(
     from wols.core.parse import parse_specimen
 
     text = url.strip()
-    if "://" in text:
+    scheme = text.split(":", 1)[0].lower() if ":" in text else ""
+    if "://" in text or scheme in ENCRYPTED_URL_SCHEMES:
         # Any URL goes through the v1.3.0 parser, which reports what is wrong.
         plaintext = decrypt_specimen_bytes(text, secret)
     elif allow_legacy:
@@ -142,14 +152,42 @@ def decrypt_specimen_fields(
         :meth:`wols.Specimen.from_dict` for a Specimen.
 
     Raises:
-        WolsEncryptionError: If any field fails to decrypt.
+        WolsEncryptionError: If any field fails to decrypt, an identifying
+            field (``id``, ``type``, ...) is encrypted (``INVALID_PARAMETER``),
+            or the label's distinct key derivations together exceed
+            ``MAX_DECODE_ITERATIONS`` PBKDF2 iterations (``INVALID_PARAMETER``,
+            which bounds the work an untrusted label can force).
     """
+    # Pass 1 (cheap): parse every field object and bound the total PBKDF2
+    # work before deriving any key, so an untrusted label is rejected
+    # without the decoder spending anything on it.
+    payloads: dict[str, EncryptedPayload] = {}
+    kdf_params: set[tuple[str, bytes | None, int | None]] = set()
+    for field, value in data.items():
+        if not is_encrypted_field(value):
+            continue
+        if field in STRUCTURAL_FIELDS:
+            raise WolsEncryptionError(
+                message=f"Field '{field}' identifies the label and cannot be encrypted",
+                code="INVALID_PARAMETER",
+            )
+        payload = parse_encrypted_field(value, field=field)
+        payloads[field] = payload
+        kdf_params.add((payload.kdf, payload.salt, payload.iterations))
+    total_iterations = sum(iterations or 0 for _, _, iterations in kdf_params)
+    if total_iterations > MAX_DECODE_ITERATIONS:
+        raise WolsEncryptionError(
+            message=f"Label requires {total_iterations} PBKDF2 iterations in "
+            f"total, more than the decoder limit of {MAX_DECODE_ITERATIONS}",
+            code="INVALID_PARAMETER",
+        )
+
+    # Pass 2: derive each distinct key once, then decrypt.
     result = copy.deepcopy(data)
     keys: dict[tuple[str, bytes | None, int | None], bytes] = {}
-
     for field, value in data.items():
-        if isinstance(value, dict) and value.get("encrypted") is True:
-            payload = parse_encrypted_field(value, field=field)
+        if field in payloads:
+            payload = payloads[field]
             cache_key = (payload.kdf, payload.salt, payload.iterations)
             if cache_key not in keys:
                 keys[cache_key] = key_for_payload(payload, secret)

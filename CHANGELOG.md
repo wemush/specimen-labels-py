@@ -14,6 +14,14 @@ WOLS conformance vectors passes.
 
 ### Breaking
 
+`wols` versions follow the WOLS specification version, so this minor release
+contains breaking changes. Read these entries before upgrading a `~=1.2` pin.
+
+- **If you passed a base64 key string to `encrypt_specimen`/`decrypt_specimen`**,
+  pass `base64.b64decode(key)` instead. A `str` is now a passphrase, so the
+  old string would be used as a passphrase rather than a key.
+  `encrypt_specimen` emits a `WolsWarning` when a string looks like a base64
+  32-byte key.
 - **Encrypted format**: The library now follows the WOLS 1.3.0 wire
   specification and cannot decrypt 1.2.x output by default.
   - `encrypt_specimen()` returns a
@@ -74,6 +82,16 @@ WOLS conformance vectors passes.
   URL instead of reading `encrypted` as the ID. It still accepts `wemush://`,
   `web+wemush://`, and `https://`. Compact URL output is unchanged.
 - `WOLS_VERSION` and the package version are `1.3.0`.
+- `Strain` rejects invalid `clonal_generation` and `generation` values (as it
+  does `transfer_depth`), and `parse_specimen` reports any malformed field as
+  `WolsParseError` instead of leaking `TypeError` or `AttributeError`.
+- ID and base64url checks match the whole string. A trailing newline is
+  rejected.
+- `decrypt_specimen_fields` bounds total PBKDF2 work per call, checking it
+  before deriving any key. It refuses encrypted objects on identifying fields
+  (`@context`, `@type`, `id`, `version`, `type`, `species`).
+- `create_specimen` has typed overloads, so type checkers require exactly one
+  of `type` or `input_type`.
 
 ## [0.1.1] - 2026-01-05
 

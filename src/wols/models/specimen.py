@@ -37,6 +37,31 @@ def is_non_negative_int(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
+def is_encrypted_field(value: object) -> bool:
+    """Return True for a field-level encryption object (WOLS v1.3.0).
+
+    The single predicate shared by validation and decryption, so the two
+    cannot disagree about which fields are encrypted.
+    """
+    return isinstance(value, dict) and value.get("encrypted") is True
+
+
+def transfer_depth_below_clonal(
+    clonal_generation: object, transfer_depth: object
+) -> bool:
+    """Return True when both counters are valid and transferDepth < clonal.
+
+    WOLS v1.3.0 says transferDepth SHOULD be at least clonalGeneration, since
+    every subculture is also a transfer. A violation is a warning, not an
+    error.
+    """
+    return (
+        is_non_negative_int(clonal_generation)
+        and is_non_negative_int(transfer_depth)
+        and transfer_depth < clonal_generation  # type: ignore[operator]
+    )
+
+
 @dataclass(frozen=True)
 class Strain:
     """Strain/lineage information.
@@ -57,7 +82,9 @@ class Strain:
         source: Origin (spore, tissue, agar, liquid).
 
     Raises:
-        ValueError: If ``transfer_depth`` is not a non-negative integer.
+        ValueError: If ``clonal_generation`` or ``transfer_depth`` is not a
+            non-negative integer, or ``generation`` is not a string or a
+            non-negative integer.
     """
 
     name: str
@@ -68,12 +95,20 @@ class Strain:
     transfer_depth: int | None = None
 
     def __post_init__(self) -> None:
-        if self.transfer_depth is not None and not is_non_negative_int(
-            self.transfer_depth
+        for wire_name, value in (
+            ("clonalGeneration", self.clonal_generation),
+            ("transferDepth", self.transfer_depth),
+        ):
+            if value is not None and not is_non_negative_int(value):
+                raise ValueError(
+                    f"strain.{wire_name} must be a non-negative integer, got {value!r}"
+                )
+        if self.generation is not None and not (
+            isinstance(self.generation, str) or is_non_negative_int(self.generation)
         ):
             raise ValueError(
-                "strain.transferDepth must be a non-negative integer, "
-                f"got {self.transfer_depth!r}"
+                "strain.generation must be a string or a non-negative integer, "
+                f"got {self.generation!r}"
             )
 
     def to_dict(self) -> dict[str, Any]:
@@ -93,7 +128,17 @@ class Strain:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Strain:
-        """Create from dictionary."""
+        """Create from dictionary.
+
+        Raises:
+            ValueError: If the data is not an object or a field is invalid.
+        """
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"strain must be a string or an object, got {type(data).__name__}"
+            )
+        if not isinstance(data.get("name"), str):
+            raise ValueError("strain.name must be a string")
         return cls(
             name=data["name"],
             generation=data.get("generation"),
@@ -190,8 +235,13 @@ class Specimen:
         if created_value is not None:
             if isinstance(created_value, datetime):
                 created = created_value
-            else:
+            elif isinstance(created_value, str):
                 created = datetime.fromisoformat(created_value.replace("Z", "+00:00"))
+            else:
+                raise ValueError(
+                    "created must be an ISO 8601 string, "
+                    f"got {type(created_value).__name__}"
+                )
 
         # Parse _meta field (v1.2.0)
         # Use dict copy to preserve arbitrary keys (including non-identifier keys)
