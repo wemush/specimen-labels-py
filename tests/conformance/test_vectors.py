@@ -9,6 +9,7 @@ The vectors in ``vectors/`` are vendored from wemush/open-standard; see
 
 from __future__ import annotations
 
+import hashlib
 import json
 import warnings
 from collections.abc import Callable
@@ -29,12 +30,19 @@ from wols.crypto import (
     b64url_decode,
     decrypt_specimen,
     decrypt_specimen_bytes,
+    decrypt_specimen_fields,
     derive_key,
 )
 from wols.exceptions import WolsEncryptionError
 
 VECTORS_DIR = Path(__file__).parent / "vectors"
-VECTOR_FILES = ("embedded", "primordia", "generation", "encrypted")
+VECTOR_FILES = (
+    "embedded",
+    "primordia",
+    "generation",
+    "encrypted",
+    "field-encryption",
+)
 
 
 def _load_cases() -> list[Any]:
@@ -109,14 +117,32 @@ def check_decrypt(case: dict[str, Any]) -> None:
         assert json.loads(plaintext) == expected["specimen"]
         assert decrypt_specimen(url, secret) == Specimen.from_dict(expected["specimen"])
     else:
-        # The vector's reason is a suggested category; this library uses the
-        # same names as error codes.
-        expected_code = expected["reason"].upper().replace("-", "_")
         with pytest.raises(WolsEncryptionError) as exc_info:
             decrypt_specimen_bytes(url, secret)
-        assert exc_info.value.code == expected_code
+        assert exc_info.value.code == _error_code(expected["reason"])
         with pytest.raises(WolsEncryptionError):
             decrypt_specimen(url, secret)
+
+
+def check_decrypt_fields(case: dict[str, Any]) -> None:
+    label = case["input"]["specimen"]
+    secret = _secret(case["input"]["secret"])
+    expected = case["expected"]
+
+    if expected["success"]:
+        restored = decrypt_specimen_fields(label, secret)
+        assert restored == expected["specimen"]
+        assert Specimen.from_dict(restored) == Specimen.from_dict(expected["specimen"])
+    else:
+        with pytest.raises(WolsEncryptionError) as exc_info:
+            decrypt_specimen_fields(label, secret)
+        assert exc_info.value.code == _error_code(expected["reason"])
+
+
+def _error_code(reason: str) -> str:
+    """The vector's reason is a suggested category; this library uses the
+    same names as error codes (``id-mismatch`` becomes ``ID_MISMATCH``)."""
+    return reason.upper().replace("-", "_")
 
 
 CHECKS: dict[str, Callable[[dict[str, Any]], None]] = {
@@ -124,6 +150,7 @@ CHECKS: dict[str, Callable[[dict[str, Any]], None]] = {
     "create": check_create,
     "derive": check_derive,
     "decrypt": check_decrypt,
+    "decryptFields": check_decrypt_fields,
 }
 
 
@@ -144,3 +171,15 @@ def test_all_vector_files_present() -> None:
         doc = json.loads((VECTORS_DIR / f"{name}.json").read_text(encoding="utf-8"))
         assert doc["wolsVersion"] == "1.3.0"
         assert doc["cases"]
+
+
+def test_vendored_files_match_sha256sums() -> None:
+    """The vendored files are unmodified copies of the upstream vectors."""
+    listed = {}
+    for line in (VECTORS_DIR / "SHA256SUMS").read_text().splitlines():
+        digest, name = line.split()
+        listed[name] = digest
+    assert set(listed) == {f"{name}.json" for name in VECTOR_FILES}
+    for name, digest in listed.items():
+        actual = hashlib.sha256((VECTORS_DIR / name).read_bytes()).hexdigest()
+        assert actual == digest, name

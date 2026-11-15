@@ -10,17 +10,15 @@ The files in `vectors/` are copied unmodified from
 
 | Field | Value |
 | ----- | ----- |
-| Tag | `1.3.0-rc.1` |
-| Commit | `a96405ef951d6010b47ea8ae962b006e5b62d00c` |
-| Path | `conformance/vectors/{embedded,primordia,generation,encrypted}.json` |
+| Tag | `1.3.0-rc.2` |
+| Commit | `9d200c959e78188a6b6a8828b51337f1afc1717a` |
+| Path | `conformance/vectors/{embedded,primordia,generation,encrypted,field-encryption}.json` and `SHA256SUMS` |
 
-SHA-256 checksums:
+`vectors/SHA256SUMS` is copied from upstream too. Check the vendored files
+with:
 
-```text
-a86d8cecf6b43af41fd19d9686d26697d99f162939167bf0fd187fc8610270b1  embedded.json
-c54f9f7943733bab042a16398a4fe2a45daad0590777507243f681317784c8b1  encrypted.json
-9e4ffca202dc674fefe8a25c5aed4a3377295e3cec71ddc788dada7912d7d2de  generation.json
-0f103727fa3e8fd1f8ef037df6f60a1a8e83f48f5085a919e3b1d7b2c8978ff1  primordia.json
+```bash
+cd tests/conformance/vectors && shasum -a 256 -c SHA256SUMS
 ```
 
 ## How operations map to the API
@@ -31,20 +29,19 @@ c54f9f7943733bab042a16398a4fe2a45daad0590777507243f681317784c8b1  encrypted.json
 | `create` | `create_specimen(**input)`. The warning is a `WolsWarning`. |
 | `derive` | `wols.crypto.derive_key(passphrase, salt, iterations)` |
 | `decrypt` | `wols.crypto.decrypt_specimen_bytes(url, secret)` (exact plaintext) and `decrypt_specimen(url, secret)`. A failure's `reason` must equal the `WolsEncryptionError.code`, upper-cased with `_` (for example, `id-mismatch` becomes `ID_MISMATCH`). |
+| `decryptFields` | `wols.crypto.decrypt_specimen_fields(specimen, secret)`, compared with `expected.specimen`. Failure reasons map to codes as for `decrypt`. |
 
 ## Refreshing
 
 ```bash
 TAG=1.3.0  # or another tag or commit of wemush/open-standard
 git clone https://github.com/wemush/open-standard.git /tmp/open-standard
-for f in embedded primordia generation encrypted; do
-  git -C /tmp/open-standard show "$TAG:conformance/vectors/$f.json" \
-    > "tests/conformance/vectors/$f.json"
-done
-git -C /tmp/open-standard rev-parse "$TAG^{commit}"   # record in the table above
-shasum -a 256 tests/conformance/vectors/*.json         # record above
+git -C /tmp/open-standard checkout "$TAG"
+cp /tmp/open-standard/conformance/vectors/{*.json,SHA256SUMS} tests/conformance/vectors/
+git -C /tmp/open-standard rev-parse HEAD   # record in the table above
+(cd tests/conformance/vectors && shasum -a 256 -c SHA256SUMS)
 uv run pytest tests/conformance -v
 ```
 
-Then update the tag, commit, and checksums above. If upstream adds a vector
-file, add its name to `VECTOR_FILES` in `test_vectors.py`.
+Then update the tag and commit above. If upstream adds a vector file, add
+its name to `VECTOR_FILES` in `test_vectors.py`.

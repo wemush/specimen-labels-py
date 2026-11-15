@@ -9,6 +9,10 @@ Field-level form (replaces a field's value inside an embedded label)::
     {"encrypted": true, "algorithm": "AES-256-GCM", "payload": e, "iv": iv,
      "kdf": kdf, "salt"?: salt, "iterations"?: i}
 
+Field-level ciphertexts authenticate the additional data
+``f"{label_id}\\n{field}"`` (see :func:`wols.crypto._aead.field_aad`); the URL
+form uses none and instead checks the decrypted ``id``.
+
 All binary values are base64url without padding. Padded input is accepted
 when decoding. This module only parses and builds the format; it does not
 need the ``cryptography`` package except for :func:`derive_key`.
@@ -19,9 +23,10 @@ from __future__ import annotations
 import base64
 import binascii
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Literal
-from urllib.parse import parse_qsl, quote, unquote, urlsplit
+from urllib.parse import parse_qsl, quote, unquote_to_bytes, urlsplit
 
 from wols.constants import ID_PREFIX
 from wols.exceptions import WolsEncryptionError
@@ -35,16 +40,21 @@ TAG_LENGTH = 16
 SALT_LENGTH = 16
 """Salt length used when generating. The spec minimum is 16 bytes."""
 
-DEFAULT_ITERATIONS = 100_000
-"""PBKDF2 iterations used when generating. Generators MUST use >= 100,000."""
+DEFAULT_ITERATIONS = 600_000
+"""PBKDF2 iterations used when generating (OWASP guidance for
+PBKDF2-HMAC-SHA256). Labels are printed with public ciphertext, so the default
+favors resistance to offline guessing. Each passphrase scan costs roughly
+0.1 s on a desktop and more on phones. Pass ``iterations=100_000`` (the spec
+minimum, ``MIN_GENERATE_ITERATIONS``) when scan speed matters more."""
 
 MIN_GENERATE_ITERATIONS = 100_000
 MIN_DECODE_ITERATIONS = 10_000
 """Decoders MUST reject PBKDF2 iteration counts below this value."""
 
 MAX_DECODE_ITERATIONS = 10_000_000
-"""Upper bound per derivation on decode, so a crafted label cannot stall the
-decoder. Also the total PBKDF2 budget for one decrypt_specimen_fields call."""
+"""Decoders MUST reject more PBKDF2 iterations than this, per derivation and
+in total for one field-level label, so a crafted label cannot stall the
+decoder. Generators never exceed it either."""
 
 _MAX_ITERATION_DIGITS = len(str(MAX_DECODE_ITERATIONS))
 
@@ -59,6 +69,7 @@ type Secret = str | bytes
 # Matched with fullmatch: "$" alone would also accept a trailing newline.
 _B64URL_RE = re.compile(r"[A-Za-z0-9_-]*={0,2}")
 _DECIMAL_RE = re.compile(r"[0-9]+")
+_BAD_PERCENT_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 
 
 def b64url_encode(data: bytes) -> str:
@@ -91,8 +102,13 @@ def b64url_decode(value: str, *, name: str = "value") -> bytes:
 def derive_key(passphrase: str, salt: bytes, iterations: int) -> bytes:
     """Derive a 256-bit key with PBKDF2-HMAC-SHA256.
 
+    The passphrase is normalized to Unicode NFC and then encoded as UTF-8,
+    so the same passphrase typed on different platforms (for example ``ü``
+    as one code point or as ``u`` plus a combining diaeresis) derives the
+    same key.
+
     Args:
-        passphrase: Passphrase, encoded as UTF-8.
+        passphrase: Passphrase.
         salt: Per-label random salt.
         iterations: PBKDF2 iteration count.
 
@@ -113,7 +129,7 @@ def derive_key(passphrase: str, salt: bytes, iterations: int) -> bytes:
         salt=salt,
         iterations=iterations,
     )
-    return kdf.derive(passphrase.encode("utf-8"))
+    return kdf.derive(unicodedata.normalize("NFC", passphrase).encode("utf-8"))
 
 
 @dataclass(frozen=True)
@@ -171,7 +187,11 @@ class EncryptedLabel:
         return f"{ID_PREFIX}:{self.id}"
 
     def to_url(self) -> str:
-        """Build the ``wemush://v1/encrypted/...`` URL."""
+        """Build the ``wemush://v1/encrypted/...`` URL.
+
+        The ID suffix is percent-encoded as UTF-8 in a single path segment
+        (every character except unreserved ASCII is escaped).
+        """
         p = self.payload
         query = f"e={b64url_encode(p.ciphertext)}&iv={b64url_encode(p.iv)}&kdf={p.kdf}"
         if p.salt is not None:
@@ -191,7 +211,7 @@ def _parse_iterations(value: object, *, name: str) -> int:
             raise WolsEncryptionError(
                 message=f"PBKDF2 iteration count in '{name}' exceeds the decoder "
                 f"limit of {MAX_DECODE_ITERATIONS}",
-                code="INVALID_PARAMETER",
+                code="EXCESSIVE_ITERATIONS",
             )
         iterations = int(value)
     elif isinstance(value, int) and not isinstance(value, bool):
@@ -211,7 +231,7 @@ def _parse_iterations(value: object, *, name: str) -> int:
         raise WolsEncryptionError(
             message=f"PBKDF2 iteration count {iterations} exceeds the decoder "
             f"limit of {MAX_DECODE_ITERATIONS}",
-            code="INVALID_PARAMETER",
+            code="EXCESSIVE_ITERATIONS",
         )
     return iterations
 
@@ -234,7 +254,8 @@ def build_payload(
     Raises:
         WolsEncryptionError: With code ``UNSUPPORTED_KDF``,
             ``MISSING_PARAMETER``, ``UNEXPECTED_PARAMETER``,
-            ``INSUFFICIENT_ITERATIONS``, or ``INVALID_PARAMETER``.
+            ``INSUFFICIENT_ITERATIONS``, ``EXCESSIVE_ITERATIONS``, or
+            ``INVALID_PARAMETER``.
     """
     if kdf not in SUPPORTED_KDFS:
         raise WolsEncryptionError(
@@ -320,6 +341,27 @@ def is_encrypted_url(text: str) -> bool:
     )
 
 
+def _decode_id_segment(segment: str) -> str:
+    """Percent-decode the ID path segment as UTF-8, strictly.
+
+    ``+`` is a literal character (this is a path, not a form). A ``%`` not
+    followed by two hex digits, or escapes that decode to invalid UTF-8, are
+    rejected rather than passed through or replaced.
+    """
+    if _BAD_PERCENT_RE.search(segment):
+        raise WolsEncryptionError(
+            message="Encrypted URL ID has a malformed percent-escape",
+            code="INVALID_ENCODING",
+        )
+    try:
+        return unquote_to_bytes(segment).decode("utf-8")
+    except UnicodeDecodeError as e:
+        raise WolsEncryptionError(
+            message=f"Encrypted URL ID is not valid UTF-8: {e}",
+            code="INVALID_ENCODING",
+        ) from e
+
+
 def parse_encrypted_url(url: str) -> EncryptedLabel:
     """Parse and validate an encrypted-format URL without decrypting it.
 
@@ -333,7 +375,8 @@ def parse_encrypted_url(url: str) -> EncryptedLabel:
 
     Raises:
         WolsEncryptionError: ``INVALID_URL`` for a malformed URL,
-            ``LEGACY_FORMAT`` when ``kdf`` is absent (pre-1.3.0 label), or
+            ``INVALID_ENCODING`` for a malformed percent-escape or invalid
+            UTF-8 in the ID, ``LEGACY_FORMAT`` when ``kdf`` is absent (pre-1.3.0 label), or
             any code raised by :func:`build_payload`.
     """
     try:
@@ -355,14 +398,21 @@ def parse_encrypted_url(url: str) -> EncryptedLabel:
             message="Invalid encrypted URL path. Expected v1/encrypted/{id}",
             code="INVALID_URL",
         )
-    id_suffix = unquote(path[2])
+    id_suffix = _decode_id_segment(path[2])
     if not id_suffix:
         raise WolsEncryptionError(
             message="Encrypted URL is missing the specimen ID", code="INVALID_URL"
         )
 
+    try:
+        pairs = parse_qsl(parts.query, keep_blank_values=True, errors="strict")
+    except UnicodeDecodeError as e:
+        raise WolsEncryptionError(
+            message=f"Encrypted URL query is not valid UTF-8: {e}",
+            code="INVALID_ENCODING",
+        ) from e
     params: dict[str, str] = {}
-    for key, value in parse_qsl(parts.query, keep_blank_values=True):
+    for key, value in pairs:
         if key in params:
             raise WolsEncryptionError(
                 message=f"Duplicate parameter '{key}'", code="INVALID_PARAMETER"
@@ -392,7 +442,8 @@ def parse_encrypted_field(obj: dict[str, Any], *, field: str) -> EncryptedPayloa
 
     Raises:
         WolsEncryptionError: ``UNSUPPORTED_ALGORITHM`` for an algorithm other
-            than AES-256-GCM, or any code raised by :func:`build_payload`.
+            than AES-256-GCM, ``LEGACY_FORMAT`` when ``kdf`` is absent, or any
+            code raised by :func:`build_payload`.
     """
     if obj.get("algorithm") != ALGORITHM:
         raise WolsEncryptionError(
@@ -403,8 +454,9 @@ def parse_encrypted_field(obj: dict[str, Any], *, field: str) -> EncryptedPayloa
     names = {k: f"{field}.{v}" for k, v in _FIELD_NAMES.items()}
     if "kdf" not in obj:
         raise WolsEncryptionError(
-            message=f"Missing required parameter '{field}.kdf'",
-            code="MISSING_PARAMETER",
+            message=f"Field '{field}' has no 'kdf'. Field objects without kdf "
+            "predate WOLS 1.3.0 and are not supported",
+            code="LEGACY_FORMAT",
         )
     return build_payload(
         kdf=obj["kdf"],

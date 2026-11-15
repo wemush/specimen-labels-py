@@ -161,7 +161,7 @@ from wols.crypto import decrypt_specimen, encrypt_specimen
 
 # A passphrase (str) uses kdf=pbkdf2 with a random salt for every label
 url = encrypt_specimen(specimen, "correct horse battery staple")
-# wemush://v1/encrypted/{id}?e=...&iv=...&kdf=pbkdf2&salt=...&i=100000
+# wemush://v1/encrypted/{id}?e=...&iv=...&kdf=pbkdf2&salt=...&i=600000
 
 # A 32-byte key (bytes) uses kdf=raw
 key = os.urandom(32)
@@ -170,32 +170,54 @@ url = encrypt_specimen(specimen, key)
 recovered = decrypt_specimen(url, key)
 ```
 
-The specimen ID stays visible in the URL. Decryption checks that the decrypted
-`id` matches it. Errors raise `WolsEncryptionError` with a `code` such as
-`AUTHENTICATION_FAILED` or `ID_MISMATCH`.
+The specimen ID stays visible in the URL, percent-encoded as one path segment
+(so IDs containing `/`, `+`, `%`, spaces, or non-ASCII characters round-trip).
+Decryption checks that the decrypted `id` matches it. Errors raise
+`WolsEncryptionError` with a `code` such as `AUTHENTICATION_FAILED`,
+`ID_MISMATCH`, `EXCESSIVE_ITERATIONS`, `INVALID_ENCODING`, or
+`INVALID_PLAINTEXT`. The codes match the conformance vectors' suggested
+reasons.
 
 To encrypt individual fields inside an embedded label, use
 `encrypt_specimen_fields(specimen, secret, ["strain", "custom"])` and
 `decrypt_specimen_fields`. Each field's value is replaced with an
-`{"encrypted": true, "algorithm": "AES-256-GCM", ...}` object.
+`{"encrypted": true, "algorithm": "AES-256-GCM", ...}` object. Identifying
+fields (`@context`, `@type`, `id`, `version`, `type`, `species`) are never
+encrypted, and a label that has any of them encrypted is refused with
+`IDENTIFYING_FIELD`.
 
 Security notes:
 
+- **Iterations and scan speed**: Passphrase labels default to 600,000
+  PBKDF2 iterations, in line with OWASP guidance for PBKDF2-HMAC-SHA256.
+  Every scan pays that cost once: about 0.1 s on a desktop, and more on
+  phones or in browsers. If scan speed matters more than resistance to
+  offline guessing, pass `iterations=100_000`, the spec minimum. Generation
+  refuses more than 10,000,000. The count is stored in each label, so
+  decoders read either. Raw-key labels (`bytes`) skip key derivation
+  entirely.
+
 - **Passphrases**: Labels are printed and their ciphertext is public, so a
   weak passphrase can be guessed offline. Use a long, random passphrase, or a
-  raw 32-byte key. Passphrases are encoded as UTF-8 without Unicode
-  normalization, as the spec requires. Normalize them yourself (for example
-  with `unicodedata.normalize("NFC", ...)`) if they may be typed on different
-  platforms.
-- **Field-level integrity**: Each field object is authenticated on its own.
-  The WOLS 1.3.0 field form doesn't bind it to its field name or its label,
-  so someone who can edit the JSON can move or swap encrypted fields without
-  being detected. Use the whole-label URL form when that matters. It binds the
-  ID and covers every field.
+  raw 32-byte key. Passphrases are normalized to Unicode NFC and then encoded
+  as UTF-8 before key derivation, both when encrypting and when decrypting,
+  so `ü` typed as one code point or as `u` plus a combining mark gives the
+  same key on every platform.
+- **Field-level integrity**: Each field's ciphertext is authenticated
+  together with AES-GCM additional data: the label's full `id`, a line feed,
+  and the field name (for example `wemush:clx1a2b3c4\nstrain`). An encrypted
+  value swapped into another field, or copied from another label, fails with
+  `AUTHENTICATION_FAILED`, and so does a label whose `id` was changed. Each
+  field gets its own random IV. Unencrypted fields are not authenticated;
+  use the whole-label URL form when every field must be tamper-evident.
 - **Raw keys**: Every label gets a fresh random 96-bit IV. Rotate a long-lived
   raw key well before it has encrypted about 2^32 labels.
 - **Untrusted input**: Decoders cap PBKDF2 work at 10,000,000 iterations per
-  URL or per field-decrypt call, so a crafted label can't stall a scanner.
+  URL, and in total across the distinct salts of a field-level label, so a
+  crafted label can't stall a scanner. `i` must be plain decimal digits.
+  Every parameter, the percent-encoded ID, and the total cost are checked
+  before any key is derived. A decrypted plaintext that starts with a UTF-8
+  byte order mark is refused.
 
 ## WOLS 1.3.0 Behavior
 
