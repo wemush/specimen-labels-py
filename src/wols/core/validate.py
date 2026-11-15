@@ -10,7 +10,12 @@ from typing import Any
 from wols.constants import ID_PREFIX, WOLS_CONTEXT, WOLS_VERSION
 from wols.generation import is_valid_generation
 from wols.models.enums import GrowthStage, SpecimenType
-from wols.models.specimen import Specimen, is_non_negative_int
+from wols.models.specimen import (
+    Specimen,
+    is_encrypted_field,
+    is_non_negative_int,
+    transfer_depth_below_clonal,
+)
 from wols.models.validation import ValidationError, ValidationResult
 
 # CUID pattern: wemush: followed by a 24-character lowercase CUID2.
@@ -101,22 +106,20 @@ def validate_specimen_id(
         return False
 
     if mode == IdValidationMode.STRICT:
-        return bool(STRICT_PATTERN.match(id))
+        return bool(STRICT_PATTERN.fullmatch(id))
     elif mode == IdValidationMode.CUID:
-        return bool(ID_PATTERN.match(id))
+        return bool(ID_PATTERN.fullmatch(id))
     elif mode == IdValidationMode.ULID:
-        return bool(ULID_PATTERN.match(suffix))
+        return bool(ULID_PATTERN.fullmatch(suffix))
     elif mode == IdValidationMode.UUID:
-        return bool(UUID_PATTERN.match(suffix))
+        return bool(UUID_PATTERN.fullmatch(suffix))
     elif mode == IdValidationMode.ANY:
         return True
 
     return False
 
 
-def _is_encrypted_field(value: Any) -> bool:
-    """Return True for a field-level encryption object (WOLS v1.3.0)."""
-    return isinstance(value, dict) and value.get("encrypted") is True
+_is_encrypted_field = is_encrypted_field
 
 
 def validate_specimen(
@@ -479,10 +482,8 @@ def _validate_strain_counters(
                 )
             )
 
-    if (
-        "clonalGeneration" in valid_counters
-        and "transferDepth" in valid_counters
-        and valid_counters["transferDepth"] < valid_counters["clonalGeneration"]
+    if transfer_depth_below_clonal(
+        valid_counters.get("clonalGeneration"), valid_counters.get("transferDepth")
     ):
         warnings.append(
             ValidationError(

@@ -11,6 +11,7 @@ import json
 from typing import TYPE_CHECKING, Any
 
 from wols.constants import ID_PREFIX
+from wols.core.validate import validate_specimen_id
 from wols.crypto._aead import prepare_key, seal
 from wols.crypto.wire import DEFAULT_ITERATIONS, EncryptedLabel, Secret
 from wols.exceptions import WolsEncryptionError
@@ -60,7 +61,7 @@ def encrypt_specimen(
         >>> url = encrypt_specimen(specimen, os.urandom(32))
     """
     prefix = f"{ID_PREFIX}:"
-    if not specimen.id.startswith(prefix) or not specimen.id[len(prefix) :]:
+    if not validate_specimen_id(specimen.id):
         raise WolsEncryptionError(
             message=f"Specimen ID must be '{prefix}' followed by a non-empty "
             f"suffix, got '{specimen.id}'",

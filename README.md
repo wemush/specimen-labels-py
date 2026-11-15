@@ -179,6 +179,24 @@ To encrypt individual fields inside an embedded label, use
 `decrypt_specimen_fields`. Each field's value is replaced with an
 `{"encrypted": true, "algorithm": "AES-256-GCM", ...}` object.
 
+Security notes:
+
+- **Passphrases**: Labels are printed and their ciphertext is public, so a
+  weak passphrase can be guessed offline. Use a long, random passphrase, or a
+  raw 32-byte key. Passphrases are encoded as UTF-8 without Unicode
+  normalization, as the spec requires. Normalize them yourself (for example
+  with `unicodedata.normalize("NFC", ...)`) if they may be typed on different
+  platforms.
+- **Field-level integrity**: Each field object is authenticated on its own.
+  The WOLS 1.3.0 field form doesn't bind it to its field name or its label,
+  so someone who can edit the JSON can move or swap encrypted fields without
+  being detected. Use the whole-label URL form when that matters. It binds the
+  ID and covers every field.
+- **Raw keys**: Every label gets a fresh random 96-bit IV. Rotate a long-lived
+  raw key well before it has encrypted about 2^32 labels.
+- **Untrusted input**: Decoders cap PBKDF2 work at 10,000,000 iterations per
+  URL or per field-decrypt call, so a crafted label can't stall a scanner.
+
 ## WOLS 1.3.0 Behavior
 
 - **IDs**: Any non-empty suffix after `wemush:` is accepted, including
@@ -190,6 +208,12 @@ To encrypt individual fields inside an embedded label, use
   resolve the spec alias table case-insensitively. For example, `"lc"` becomes
   `CULTURE`, `"BLOCK"` becomes `SUBSTRATE`, and `"PINNING"` becomes
   `FRUITING`.
+- **Warnings**: Two channels exist. `create_specimen()` and
+  `encrypt_specimen()` report accepted-but-questionable input through
+  `warnings.warn(..., WolsWarning)`. Run
+  `warnings.simplefilter("error", WolsWarning)` to turn those into errors.
+  `validate_specimen()` returns its findings in `ValidationResult.warnings`
+  and never calls `warnings.warn`.
 - **`PRIMORDIA`**: This is a growth stage, not a type. Passing it as the type
   gives `type=FRUITING` and sets `stage=PRIMORDIA` when no stage was supplied
   (a supplied stage is kept). It also emits a `wols.WolsWarning`. `PRIMORDIA`
@@ -216,10 +240,32 @@ The encrypted format follows the WOLS 1.3.0 wire specification. It is
 | Encoding | standard base64 with padding | base64url, no padding |
 | `encrypt_specimen_fields` returns | a `Specimen` (dropped `strain`/`stage`) | a JSON-LD `dict` with encryption objects |
 
+**If you passed a base64 key string in 1.2**, decode it to bytes to keep
+using it as a raw key. Passing the string itself now treats it as a
+passphrase, and `encrypt_specimen` emits a `WolsWarning` when a string looks
+like a base64-encoded key.
+
+```python
+import base64
+
+key_b64 = "..."  # your 1.2 key string
+
+# 1.2: encrypt_specimen(specimen, key_b64)
+url = encrypt_specimen(specimen, base64.b64decode(key_b64))  # kdf=raw
+specimen = decrypt_specimen(url, base64.b64decode(key_b64))
+
+# Reading 1.2 payloads: the legacy path still accepts the base64 string
+old = decrypt_specimen(old_payload, key_b64, allow_legacy=True)
+```
+
 To read labels written by 1.2.x, pass `allow_legacy=True`, for example
 `decrypt_specimen(old_payload, key, allow_legacy=True)` or
 `decrypt_specimen_fields(data, key, allow_legacy=True)`. The old format is
 never generated.
+
+`wols` versions follow the WOLS specification version, so 1.3.0 carries
+breaking changes despite being a minor release. If you pin `wols~=1.2` or
+`wols>=1.2,<2`, check this section before upgrading.
 
 Other changes that may affect callers:
 
