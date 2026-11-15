@@ -1,11 +1,19 @@
-"""Type Alias System for WOLS v1.2.0.
+"""Type Alias System for WOLS.
 
 Maps platform-specific type names to canonical WOLS SpecimenTypes.
+Alias resolution is case-insensitive.
+
+``PRIMORDIA`` is a reserved alias (WOLS v1.3.0): it is a GrowthStage, not a
+SpecimenType. It resolves to ``FRUITING`` here, and :func:`wols.create_specimen`
+additionally defaults the stage to ``PRIMORDIA`` and emits a warning.
 """
 
 from __future__ import annotations
 
 from wols.models.enums import SpecimenType
+
+# Reserved alias: a GrowthStage commonly supplied as a type (WOLS v1.3.0)
+PRIMORDIA_TYPE_ALIAS = "PRIMORDIA"
 
 # Module-level set of canonical type values for efficient lookup
 _CANONICAL_TYPE_VALUES: frozenset[str] = frozenset(t.value for t in SpecimenType)
@@ -69,8 +77,22 @@ def register_type_alias(alias: str, wols_type: SpecimenType) -> None:
 
     Example:
         >>> register_type_alias("MYCELIUM_BLOCK", SpecimenType.SUBSTRATE)
+
+    Raises:
+        ValueError: If the alias is empty, a canonical type name, or the
+            reserved ``PRIMORDIA`` alias.
     """
-    _TYPE_ALIAS_REGISTRY[alias.upper()] = wols_type
+    key = alias.strip().upper()
+    if not key:
+        raise ValueError("Type alias cannot be empty")
+    if key in _CANONICAL_TYPE_VALUES:
+        raise ValueError(f"'{key}' is a canonical specimen type, not an alias")
+    if key == PRIMORDIA_TYPE_ALIAS:
+        raise ValueError(
+            f"'{PRIMORDIA_TYPE_ALIAS}' is a reserved type alias and cannot be "
+            "re-registered"
+        )
+    _TYPE_ALIAS_REGISTRY[key] = wols_type
 
 
 def resolve_type_alias(type_or_alias: str) -> str:
@@ -90,7 +112,7 @@ def resolve_type_alias(type_or_alias: str) -> str:
         >>> resolve_type_alias("unknown")
         'unknown'
     """
-    upper = type_or_alias.upper()
+    upper = type_or_alias.strip().upper()
 
     # Already a valid type? Use module-level set for O(1) lookup
     if upper in _CANONICAL_TYPE_VALUES:

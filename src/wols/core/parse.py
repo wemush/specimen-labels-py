@@ -67,8 +67,9 @@ def parse_specimen(json_str: str) -> Specimen:
 def parse_compact_url(url: str) -> SpecimenRef:
     """Parse a compact WOLS URL into a SpecimenRef.
 
-    Supports multiple URL schemes:
-        - wemush://v1/{id}?s={species}&st={stage} (native app)
+    Decoders accept every supported scheme, regardless of which one
+    :func:`~wols.to_compact_url` emits by default:
+        - wemush://v1/{id}?s={species}&st={stage} (native app, spec form)
         - web+wemush://v1/{id}?s={species}&st={stage} (PWA)
         - https://domain/path/v1/{id}?s={species}&st={stage} (web)
 
@@ -137,6 +138,15 @@ def parse_compact_url(url: str) -> SpecimenRef:
         )
 
     specimen_id = path_parts[v1_index + 1]
+
+    # wemush://v1/encrypted/{id} is the encrypted format, not a compact URL
+    if specimen_id == "encrypted" and len(path_parts) > v1_index + 2:
+        raise WolsParseError(
+            message="This is an encrypted WOLS URL; decrypt it with "
+            "wols.crypto.decrypt_specimen()",
+            code="ENCRYPTED_URL",
+            input=url,
+        )
 
     # Parse query parameters
     query_params: dict[str, str] = {}

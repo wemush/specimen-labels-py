@@ -32,23 +32,49 @@ class SpecimenMeta(TypedDict, total=False):
     schema_version: str
 
 
+def is_non_negative_int(value: object) -> bool:
+    """Return True if value is a non-negative int (bool is rejected)."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
 @dataclass(frozen=True)
 class Strain:
     """Strain/lineage information.
 
+    The three counters are independent (WOLS v1.3.0) and must not stand in
+    for one another.
+
     Attributes:
         name: Strain name (e.g., "Blue Oyster").
-        generation: Transfer generation count.
-        clonal_generation: Clonal generation count.
-        lineage: Parent strain reference.
-        source: Origin (lab, wild, vendor).
+        generation: Filial (sexual) generation, e.g. "F1", "P", "G2", or a
+            number. It does not change when the same genetics is transferred.
+        clonal_generation: Culture-to-culture subculture count. The original
+            culture is 0. Expansion to grain or substrate does not increment it.
+        transfer_depth: Total transfers of any kind from the original culture
+            (v1.3.0). The original culture is 0. Serialized as
+            ``transferDepth``.
+        lineage: Parent specimen ID reference.
+        source: Origin (spore, tissue, agar, liquid).
+
+    Raises:
+        ValueError: If ``transfer_depth`` is not a non-negative integer.
     """
 
     name: str
-    generation: int | None = None
+    generation: str | int | None = None
     clonal_generation: int | None = None
     lineage: str | None = None
     source: str | None = None
+    transfer_depth: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.transfer_depth is not None and not is_non_negative_int(
+            self.transfer_depth
+        ):
+            raise ValueError(
+                "strain.transferDepth must be a non-negative integer, "
+                f"got {self.transfer_depth!r}"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dictionary."""
@@ -57,6 +83,8 @@ class Strain:
             result["generation"] = self.generation
         if self.clonal_generation is not None:
             result["clonalGeneration"] = self.clonal_generation
+        if self.transfer_depth is not None:
+            result["transferDepth"] = self.transfer_depth
         if self.lineage is not None:
             result["lineage"] = self.lineage
         if self.source is not None:
@@ -72,6 +100,7 @@ class Strain:
             clonal_generation=data.get("clonalGeneration"),
             lineage=data.get("lineage"),
             source=data.get("source"),
+            transfer_depth=data.get("transferDepth"),
         )
 
 
@@ -80,8 +109,8 @@ class Specimen:
     """WOLS specimen entity.
 
     Attributes:
-        id: Unique identifier (format: wemush:{cuid}).
-        version: WOLS spec version (currently "1.2.0").
+        id: Unique identifier: ``wemush:`` followed by any non-empty suffix.
+        version: WOLS spec version (currently "1.3.0").
         type: Specimen type.
         species: Scientific species name.
         strain: Optional genetic info.
