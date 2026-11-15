@@ -13,6 +13,7 @@ from wols.crypto.wire import (
     DEFAULT_ITERATIONS,
     IV_LENGTH,
     KEY_LENGTH,
+    MAX_DECODE_ITERATIONS,
     MIN_GENERATE_ITERATIONS,
     SALT_LENGTH,
     EncryptedPayload,
@@ -108,11 +109,12 @@ def prepare_key(secret: Secret, iterations: int = DEFAULT_ITERATIONS) -> KeyMate
         if (
             isinstance(iterations, bool)
             or not isinstance(iterations, int)
-            or iterations < MIN_GENERATE_ITERATIONS
+            or not MIN_GENERATE_ITERATIONS <= iterations <= MAX_DECODE_ITERATIONS
         ):
             raise WolsEncryptionError(
-                message="PBKDF2 iterations must be an integer of at least "
-                f"{MIN_GENERATE_ITERATIONS}, got {iterations!r}",
+                message="PBKDF2 iterations must be an integer from "
+                f"{MIN_GENERATE_ITERATIONS} to {MAX_DECODE_ITERATIONS}, "
+                f"got {iterations!r}",
                 code="INVALID_PARAMETER",
             )
         salt = os.urandom(SALT_LENGTH)
@@ -138,11 +140,22 @@ def key_for_payload(payload: EncryptedPayload, secret: Secret) -> bytes:
     return _check_raw_key(secret)
 
 
-def seal(plaintext: bytes, material: KeyMaterial) -> EncryptedPayload:
-    """Encrypt with a fresh random IV."""
+def field_aad(label_id: str, field: str) -> bytes:
+    """Additional data binding a field-level ciphertext to its label and field.
+
+    The UTF-8 encoding of the label's full ``id``, a line feed, and the
+    top-level field name, e.g. ``b"wemush:clx1a2b3c4\\nstrain"``.
+    """
+    return f"{label_id}\n{field}".encode()
+
+
+def seal(
+    plaintext: bytes, material: KeyMaterial, aad: bytes | None = None
+) -> EncryptedPayload:
+    """Encrypt with a fresh random IV, authenticating ``aad`` if given."""
     iv = os.urandom(IV_LENGTH)
     try:
-        ciphertext = _aesgcm(material.key).encrypt(iv, plaintext, None)
+        ciphertext = _aesgcm(material.key).encrypt(iv, plaintext, aad)
     except Exception as e:
         raise WolsEncryptionError(
             message=f"Encryption failed: {e}", code="ENCRYPTION_ERROR"
@@ -156,12 +169,14 @@ def seal(plaintext: bytes, material: KeyMaterial) -> EncryptedPayload:
     )
 
 
-def open_payload(payload: EncryptedPayload, key: bytes) -> bytes:
-    """Decrypt and authenticate a payload."""
+def open_payload(
+    payload: EncryptedPayload, key: bytes, aad: bytes | None = None
+) -> bytes:
+    """Decrypt and authenticate a payload (and ``aad``, if given)."""
     from cryptography.exceptions import InvalidTag
 
     try:
-        return _aesgcm(key).decrypt(payload.iv, payload.ciphertext, None)
+        return _aesgcm(key).decrypt(payload.iv, payload.ciphertext, aad)
     except InvalidTag as e:
         raise WolsEncryptionError(
             message="Authentication failed: wrong key or passphrase, or the "

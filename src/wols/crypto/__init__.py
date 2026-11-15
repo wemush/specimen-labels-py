@@ -3,7 +3,9 @@
 Optional module - requires: pip install wols[crypto]
 
 Secrets: a ``str`` passphrase selects ``kdf=pbkdf2`` (PBKDF2-HMAC-SHA256 with
-a random per-label salt); a 32-byte ``bytes`` key selects ``kdf=raw``.
+a random per-label salt, the passphrase normalized to Unicode NFC); a 32-byte
+``bytes`` key selects ``kdf=raw``. Field-level ciphertexts are bound to the
+label's ``id`` and the field name by AES-GCM additional data.
 """
 
 from wols.crypto.decrypt import (
