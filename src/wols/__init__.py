@@ -15,6 +15,7 @@ Example:
 from wols.constants import (
     DEFAULT_HTTPS_BASE_URL,
     DEFAULT_URL_SCHEME,
+    SUPPORTED_VERSIONS,
     WOLS_CONTEXT,
     WOLS_VERSION,
     UrlScheme,
@@ -49,6 +50,7 @@ from wols.exceptions import (
     WolsEncryptionError,
     WolsError,
     WolsParseError,
+    WolsSignatureError,
     WolsValidationError,
     WolsWarning,
 )
@@ -101,6 +103,7 @@ __all__ = [
     "DEFAULT_HTTPS_BASE_URL",
     "DEFAULT_URL_SCHEME",
     "GROWTH_STAGES",
+    "SUPPORTED_VERSIONS",
     "WOLS_CONTEXT",
     "WOLS_TO_PLATFORM_MAP",
     "WOLS_VERSION",
@@ -119,6 +122,7 @@ __all__ = [
     "WolsEncryptionError",
     "WolsError",
     "WolsParseError",
+    "WolsSignatureError",
     "WolsValidationError",
     "WolsWarning",
     "__version__",

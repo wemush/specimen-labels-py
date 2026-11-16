@@ -105,3 +105,22 @@ class WolsEncryptionError(WolsError):
         code: str = "ENCRYPTION_ERROR",
     ) -> None:
         super().__init__(message, code)
+
+
+class WolsSignatureError(WolsError):
+    """Raised when a label can't be signed (WOLS v1.4.0).
+
+    Only signing raises it. Verification never raises for a bad signature;
+    it returns a status instead.
+
+    Args:
+        message: What went wrong.
+        code: Error code (default: SIGNATURE_ERROR).
+    """
+
+    def __init__(
+        self,
+        message: str,
+        code: str = "SIGNATURE_ERROR",
+    ) -> None:
+        super().__init__(message, code)

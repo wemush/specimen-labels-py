@@ -14,6 +14,8 @@ The official Python implementation of the WeMush Open Labeling Standard (WOLS) v
 - **Core Module**: Create, parse, validate, and serialize specimen labels
 - **QR Codes**: Generate and scan QR codes (PNG, SVG, base64)
 - **Encryption**: WOLS 1.3.0 encrypted labels (AES-256-GCM, passphrase or raw key)
+- **Signatures**: Ed25519 signing and verification of embedded labels and
+  encrypted URLs (WOLS 1.4.0 release candidate)
 - **CLI**: Command-line interface for all operations
 - **Type Safe**: Full type annotations with PEP 561 support
 
@@ -218,6 +220,97 @@ Security notes:
   Every parameter, the percent-encoded ID, and the total cost are checked
   before any key is derived. A decrypted plaintext that starts with a UTF-8
   byte order mark is refused.
+
+### Signing and verifying
+
+> **Release candidate.** Signatures implement WOLS `1.4.0-rc.1`
+> ([open-standard#24](https://github.com/wemush/open-standard/pull/24)). The
+> scheme may still change before 1.4.0 is final.
+
+Signing requires the `crypto` extra. A signature is Ed25519 (RFC 8032) over
+the label as printed. Embedded labels carry it in the top-level `signature`
+member; encrypted URLs carry it in a final `sig` parameter. Both hold a token
+of the form `{kid}.{signature}`, where the kid names the signing key.
+
+```python
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+from wols.crypto import (
+    SignatureStatus,
+    TrustedKey,
+    sign_encrypted_url,
+    sign_specimen,
+    verify_specimen,
+)
+
+private_key = Ed25519PrivateKey.generate()  # keep it offline; store the 32-byte seed
+public_key = private_key.public_key().public_bytes_raw()
+
+# Embedded label: returns the signed JSON text to put in the QR code
+signed_label = sign_specimen(specimen, private_key, "mushoh-2026")
+
+# Encrypted URL: signs the exact URL bytes and appends &sig=...
+signed_url = sign_encrypted_url(encrypt_specimen(specimen, key), private_key, "mushoh-2026")
+
+# Verification needs a trust store you build yourself: kid -> public key
+trust_store = {"mushoh-2026": TrustedKey(public_key)}
+
+result = verify_specimen(scanned_text, trust_store)  # label text or URL, as scanned
+if result.status is SignatureStatus.VALID:
+    print("signed by", result.kid)
+```
+
+`verify_specimen` never raises for a bad signature. It returns one of five
+statuses, checked in this order:
+
+| Status | Meaning |
+| --- | --- |
+| `UNSIGNED` | No `signature` member or `sig` parameter. Anyone can strip a signature, so if you require signatures, treat this as a failure. |
+| `MALFORMED` | A signature is present, but the token, the label, or the URL breaks a rule. |
+| `UNKNOWN_KID` | The kid isn't in your trust store. "Signed by an unknown key", never valid. |
+| `INVALID` | The kid is trusted, but the signature doesn't match: the label was changed, or signed by someone else. |
+| `VALID` | The key your trust store lists for the kid signed exactly these bytes. |
+
+Pass the label text or URL **exactly as scanned**. The embedded signature
+covers the label as parsed (RFC 8785 canonical JSON, so whitespace and member
+order don't matter), including members this library doesn't model. A
+`Specimen` rebuilt by `parse_specimen` may drop or normalize values, so
+`verify_specimen` refuses one. Likewise, `EncryptedLabel.to_url()` rebuilds a
+URL, and any change to its bytes breaks the signature. Display the values from
+the label you verified, not from a separate parse. Decoding and decryption
+never verify, and they don't fail because of a signature.
+
+Keys come only from the trust store, never from the label: a `publicKey`, URL,
+or hint inside a label is ignored, because whoever edits a label controls all
+of it. To load an issuer's published keys, fetch
+`https://{issuer-host}/.well-known/wols-keys.json` yourself from a host you
+chose independently of the label, and pass it to `trust_store_from_key_set()`.
+Verification makes no network requests.
+
+**What a `VALID` signature proves**: the holder of the private key that your
+trust store lists for the kid signed these exact bytes. It does **not** prove:
+
+- **Freshness**: There is no timestamp or expiry. An older validly signed
+  label (an earlier stage, a previous batch) still verifies if it is reprinted
+  or swapped in.
+- **That the label belongs on this item**: A valid label can be copied onto
+  another bag. Signatures authenticate data, not physical objects.
+- **That the content is true**: The signer vouches for the label, nothing more.
+- **That the signer knew the plaintext**: An encrypted URL's signature covers
+  the ciphertext, so anyone can verify it without the decryption key, and
+  anyone can sign someone else's ciphertext under their own kid. To vouch for
+  the plaintext too, sign the embedded label first, then encrypt it.
+
+Other notes:
+
+- **Keys**: Keep private keys offline or in hardware where you can. Labels
+  can't be recalled, so rotate by issuing a new key under a new kid and keep
+  the old public key in trust stores while its labels circulate. If a key is
+  compromised, remove its kid from every trust store; its labels, genuine or
+  not, then verify as `UNKNOWN_KID`.
+- **Linkability**: The kid is cleartext, even on an encrypted URL, so every
+  label signed with one key can be linked to its issuer.
+- **Compact URLs** can't be signed in WOLS 1.4.0.
 
 ## WOLS 1.3.0 Behavior
 

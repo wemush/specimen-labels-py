@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Implements the WOLS `1.4.0-rc.1` signature scheme
+([open-standard#24](https://github.com/wemush/open-standard/pull/24)). The
+specification is a release candidate, so this must not be released until it
+is accepted.
+
+### Added
+
+- **Signatures** (`wols[crypto]`): `wols.crypto.sign_specimen`,
+  `sign_encrypted_url`, and `verify_specimen` (plus the form-specific
+  `verify_embedded` and `verify_encrypted_url`). Ed25519 (RFC 8032), with
+  `S ≥ L` rejected explicitly as well as by the backend. Embedded labels are
+  signed as the RFC 8785 (JCS) canonical form of the label as parsed, without
+  its top-level `signature`; encrypted URLs are signed byte for byte before
+  `&sig=`.
+- `VerificationResult` with a `SignatureStatus` (`unsigned`, `malformed`,
+  `unknown-kid`, `invalid`, `valid`, checked in that order), `kid`, and
+  `reason`. Verification never raises for a bad signature.
+- `TrustedKey`, `TrustStore`, and `trust_store_from_key_set()` for the
+  optional `/.well-known/wols-keys.json` key set document. Keys are never read
+  from a label.
+- `wols.crypto.jcs`: RFC 8785 canonicalization and a JSON parser that reports
+  duplicate member names. It handles where Python's `json` differs from
+  I-JSON: integers are rounded to doubles, and `NaN`, `Infinity`, overflowing
+  numbers, and lone surrogates are refused.
+- `WolsSignatureError`, raised only when a label can't be signed.
+- `SUPPORTED_VERSIONS`: the label versions validation accepts without a
+  warning.
+- Conformance: vendored the vectors from open-standard commit `dead46a`
+  (`1.4.0-rc.1`), including `signatures.json` and the new
+  `decrypt-with-sig`, `decrypt-signed-url`, and `signed-label-valid` cases.
+  Every case passes. The decrypt cases now also check that `sig` is kept
+  unchanged.
+
+### Changed
+
+- `validate_specimen` no longer warns `INVALID_VERSION` for `"version":
+  "1.3.1"` or `"1.4.0"`. Those versions change no wire format, and 1.4.0's
+  only addition, signatures, is now supported. Other versions still warn, and
+  new labels are still written as `1.3.0`.
+
 ## [1.3.0] - 2026-11-15
 
 Implements WOLS 1.3.0 (`1.3.0-rc.2`). Every `MUST` and `SHOULD` case in the
