@@ -16,6 +16,7 @@ The official Python implementation of the WeMush Open Labeling Standard (WOLS) v
 - **Encryption**: WOLS 1.3.0 encrypted labels (AES-256-GCM, passphrase or raw key)
 - **CLI**: Command-line interface for all operations
 - **Type Safe**: Full type annotations with PEP 561 support
+- **Interop**: CI round-trips encrypted labels (URL `kdf=pbkdf2`/`kdf=raw` and field-level) with the TypeScript [`@wemush/wols`](https://github.com/wemush/specimen-labels-js) library in both directions, against its npm release and its `main` branch (see [`interop/`](interop/))
 
 ## Installation
 
