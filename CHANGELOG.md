@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `wols.crypto.RawKey(key)`: an explicit 32-byte raw key (`kdf=raw`). It
+  takes 32 bytes, or standard base64 or base64url text (padding optional),
+  and raises `WolsEncryptionError` (`INVALID_KEY`) for anything else. Every
+  function that takes a secret accepts it, including with
+  `allow_legacy=True`, and it behaves exactly like the 32 key bytes. Its
+  `repr` hides the key. `Secret` is now `str | bytes | RawKey`.
+- `strict_passphrase=False` keyword on `encrypt_specimen()` and
+  `encrypt_specimen_fields()`. When true, a `str` secret that looks like a
+  base64-encoded 32-byte key raises `INVALID_KEY` instead of emitting a
+  `WolsWarning`. The default is unchanged.
+- README: a "Migrating from 1.2" section (rollout order, recognizing and
+  re-encrypting legacy labels, raw keys, and restoring strict ID checks),
+  with its examples run as tests against real `wols` 1.2.0 output.
+
+### Changed
+
+- The base64-key `WolsWarning` message now also suggests `RawKey(key)`.
+
 ## [1.3.0] - 2026-11-15
 
 Implements WOLS 1.3.0 (`1.3.0-rc.2`). Every `MUST` and `SHOULD` case in the

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hmac
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -62,12 +63,110 @@ ENCRYPTED_URL_SCHEMES = frozenset({"wemush", "web+wemush"})
 SUPPORTED_KDFS: tuple[str, ...] = ("pbkdf2", "raw")
 
 type Kdf = Literal["pbkdf2", "raw"]
-type Secret = str | bytes
-"""A passphrase (``str``, selects ``kdf=pbkdf2``) or a 32-byte key
-(``bytes``, selects ``kdf=raw``)."""
+type Secret = str | bytes | RawKey
+"""A passphrase (``str``, selects ``kdf=pbkdf2``), or a 32-byte key as
+``bytes`` or :class:`RawKey` (selects ``kdf=raw``)."""
 
 # Matched with fullmatch: "$" alone would also accept a trailing newline.
 _B64URL_RE = re.compile(r"[A-Za-z0-9_-]*={0,2}")
+_B64STD_RE = re.compile(r"[A-Za-z0-9+/]*={0,2}")
+
+
+class RawKey:
+    """An explicit 32-byte AES-256 key, which selects ``kdf=raw``.
+
+    Since wols 1.3.0 a ``str`` secret is always a passphrase. Wrap a key in
+    ``RawKey`` to say unambiguously that it is a raw key, including a key
+    stored as base64 text (the wols 1.2 convention). A ``RawKey`` is
+    accepted wherever a secret is: :func:`~wols.crypto.encrypt_specimen`,
+    :func:`~wols.crypto.encrypt_specimen_fields`,
+    :func:`~wols.crypto.decrypt_specimen`,
+    :func:`~wols.crypto.decrypt_specimen_fields`, and
+    :func:`~wols.crypto.decrypt_specimen_bytes`, including with
+    ``allow_legacy=True``. It behaves exactly like passing the 32 key bytes.
+
+    Args:
+        key: The key as 32 bytes (``bytes``, ``bytearray``, or
+            ``memoryview``), or as standard base64 or base64url text that
+            decodes to 32 bytes. Padding is optional and surrounding
+            whitespace is ignored. A string mixing the two alphabets is
+            refused.
+
+    Raises:
+        WolsEncryptionError: ``INVALID_KEY`` if the value is not 32 bytes,
+            is not valid base64 or base64url, or has an unsupported type.
+
+    Example:
+        >>> key = RawKey(os.urandom(32))
+        >>> key = RawKey("q83vEjRWeJCrze8SNFZ4kKvN7xI0VniQq83vEjRWeJA=")
+        >>> url = encrypt_specimen(specimen, key)  # kdf=raw
+    """
+
+    __slots__ = ("_key",)
+
+    def __init__(self, key: bytes | bytearray | memoryview | str) -> None:
+        if isinstance(key, str):
+            key_bytes = _decode_key_text(key)
+        elif isinstance(key, bytes | bytearray | memoryview):
+            key_bytes = bytes(key)
+        else:
+            raise WolsEncryptionError(
+                message="RawKey takes 32 bytes or base64/base64url text, got "
+                f"{type(key).__name__}",
+                code="INVALID_KEY",
+            )
+        if len(key_bytes) != KEY_LENGTH:
+            raise WolsEncryptionError(
+                message=f"Key must be {KEY_LENGTH} bytes, got {len(key_bytes)}",
+                code="INVALID_KEY",
+            )
+        self._key = key_bytes
+
+    @property
+    def key(self) -> bytes:
+        """The 32 key bytes."""
+        return self._key
+
+    def __bytes__(self) -> bytes:
+        return self._key
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, RawKey):
+            return NotImplemented
+        return hmac.compare_digest(self._key, other._key)
+
+    def __hash__(self) -> int:
+        return hash((RawKey, self._key))
+
+    def __repr__(self) -> str:
+        # Never show key material.
+        return f"RawKey(<{KEY_LENGTH} bytes>)"
+
+
+def _decode_key_text(text: str) -> bytes:
+    """Decode standard base64 or base64url key text, padding optional."""
+    stripped = text.strip()
+    if _B64STD_RE.fullmatch(stripped):
+        altchars = None
+    elif _B64URL_RE.fullmatch(stripped):
+        altchars = b"-_"
+    else:
+        raise WolsEncryptionError(
+            message="RawKey text is not valid base64 or base64url",
+            code="INVALID_KEY",
+        )
+    unpadded = stripped.rstrip("=")
+    try:
+        return base64.b64decode(
+            unpadded + "=" * (-len(unpadded) % 4), altchars=altchars, validate=True
+        )
+    except (binascii.Error, ValueError) as e:
+        raise WolsEncryptionError(
+            message=f"RawKey text is not valid base64 or base64url: {e}",
+            code="INVALID_KEY",
+        ) from e
+
+
 _DECIMAL_RE = re.compile(r"[0-9]+")
 _BAD_PERCENT_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 

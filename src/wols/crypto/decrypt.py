@@ -20,6 +20,7 @@ from wols.crypto.wire import (
     KEY_LENGTH,
     MAX_DECODE_ITERATIONS,
     EncryptedPayload,
+    RawKey,
     Secret,
     parse_encrypted_field,
     parse_encrypted_url,
@@ -68,7 +69,7 @@ def decrypt_specimen_bytes(url: str, secret: Secret) -> bytes:
         url: ``wemush://v1/encrypted/{id}?...`` (``web+wemush://`` is also
             accepted).
         secret: The passphrase (``str``) for ``kdf=pbkdf2`` or the 32-byte
-            key (``bytes``) for ``kdf=raw``.
+            key (``bytes`` or :class:`~wols.crypto.RawKey`) for ``kdf=raw``.
 
     Returns:
         The decrypted UTF-8 JSON-LD bytes.
@@ -113,8 +114,9 @@ def decrypt_specimen(
             ``allow_legacy=True``, a pre-1.3.0 base64 payload is also
             accepted.
         secret: The passphrase (``str``) for ``kdf=pbkdf2`` or the 32-byte
-            key (``bytes``) for ``kdf=raw``. For a legacy payload, a 32-byte
-            key or a standard-base64 encoding of one.
+            key (``bytes`` or :class:`~wols.crypto.RawKey`) for ``kdf=raw``.
+            For a legacy payload, a 32-byte key, a ``RawKey``, or a
+            standard-base64 encoding of the key as ``str``.
         allow_legacy: Accept the pre-1.3.0 nonce-prefixed base64 format.
 
     Returns:
@@ -158,7 +160,8 @@ def decrypt_specimen_fields(
     Args:
         data: JSON-LD dictionary, as returned by
             :func:`~wols.crypto.encrypt_specimen_fields`.
-        secret: The passphrase (``str``) or 32-byte key (``bytes``).
+        secret: The passphrase (``str``) or 32-byte key (``bytes`` or
+            :class:`~wols.crypto.RawKey`).
         allow_legacy: Also decrypt pre-1.3.0 ``"encrypted:<base64>"`` string
             values.
 
@@ -242,7 +245,12 @@ def decrypt_specimen_fields(
 
 
 def _legacy_key(key: Secret) -> bytes:
-    """Interpret a key the way wols 1.x did: raw bytes or standard base64."""
+    """Interpret a key the way wols 1.x did: raw bytes or standard base64.
+
+    A :class:`RawKey` is also accepted.
+    """
+    if isinstance(key, RawKey):
+        return key.key
     if isinstance(key, bytes | bytearray):
         key_bytes = bytes(key)
     else:

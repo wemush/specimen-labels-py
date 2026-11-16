@@ -18,6 +18,7 @@ from wols.crypto.wire import (
     SALT_LENGTH,
     EncryptedPayload,
     Kdf,
+    RawKey,
     Secret,
     derive_key,
 )
@@ -48,9 +49,11 @@ class KeyMaterial:
 
 
 def _check_raw_key(secret: Any) -> bytes:
+    if isinstance(secret, RawKey):
+        return secret.key
     if not isinstance(secret, bytes | bytearray):
         raise WolsEncryptionError(
-            message="kdf=raw requires a 32-byte key as bytes",
+            message="kdf=raw requires a 32-byte key as bytes or RawKey",
             code="INVALID_KEY",
         )
     if len(secret) != KEY_LENGTH:
@@ -89,23 +92,36 @@ def _looks_like_base64_key(secret: str) -> bool:
     return False
 
 
-def prepare_key(secret: Secret, iterations: int = DEFAULT_ITERATIONS) -> KeyMaterial:
+_KEY_LIKE_PASSPHRASE = (
+    "The secret is a str that looks like a base64-encoded 32-byte key. Since "
+    "wols 1.3.0 a str is a passphrase (kdf=pbkdf2). To use it as a raw key "
+    "(kdf=raw), pass base64.b64decode(key) or RawKey(key) instead."
+)
+
+
+def prepare_key(
+    secret: Secret,
+    iterations: int = DEFAULT_ITERATIONS,
+    *,
+    strict_passphrase: bool = False,
+) -> KeyMaterial:
     """Select the KDF from the secret type and produce a fresh key.
 
     A ``str`` passphrase selects ``pbkdf2`` with a new random salt; a
-    32-byte ``bytes`` key selects ``raw``.
+    32-byte ``bytes`` key or a :class:`~wols.crypto.RawKey` selects ``raw``.
+
+    A ``str`` that looks like a base64-encoded 32-byte key emits a
+    ``WolsWarning``, or raises ``INVALID_KEY`` when ``strict_passphrase`` is
+    true.
     """
     if isinstance(secret, str):
         passphrase = _check_passphrase(secret)
         if _looks_like_base64_key(passphrase):
-            warnings.warn(
-                "The secret is a str that looks like a base64-encoded 32-byte "
-                "key. Since wols 1.3.0 a str is a passphrase (kdf=pbkdf2). To "
-                "use it as a raw key (kdf=raw), pass base64.b64decode(key) "
-                "instead.",
-                WolsWarning,
-                stacklevel=3,
-            )
+            if strict_passphrase:
+                raise WolsEncryptionError(
+                    message=_KEY_LIKE_PASSPHRASE, code="INVALID_KEY"
+                )
+            warnings.warn(_KEY_LIKE_PASSPHRASE, WolsWarning, stacklevel=3)
         if (
             isinstance(iterations, bool)
             or not isinstance(iterations, int)

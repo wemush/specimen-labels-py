@@ -298,6 +298,156 @@ Other changes that may affect callers:
 - `strain.generation` accepts filial notation strings (`"F1"`) as well as
   integers.
 
+## Migrating from 1.2
+
+These steps move a deployment with 1.2.x labels already in circulation to
+1.3.0. [Upgrading from 1.2](#upgrading-from-12) lists the format changes.
+The examples assume `wols[crypto]` 1.3.0 and an existing `specimen`.
+
+### Upgrade readers before writers
+
+1.2.x cannot decrypt 1.3.0 labels. `wols` 1.2.0 fails on a 1.3.0 URL with
+`DECRYPTION_ERROR`. 1.3.0 can still read 1.2.x labels when you ask it to.
+Upgrade every scanner and service that decrypts labels first. Switch the
+code that writes labels only after that.
+
+### Read legacy labels with `allow_legacy`
+
+`decrypt_specimen` and `decrypt_specimen_fields` refuse the 1.2 format
+unless you pass `allow_legacy=True`. Without it they raise
+`WolsEncryptionError` with code `LEGACY_FORMAT`.
+
+You can spot a legacy value by its shape:
+
+| | 1.2.x (legacy) | 1.3.0 |
+| --- | --- | --- |
+| Whole label | a bare standard-base64 string, not a URL | `wemush://v1/encrypted/{id}?...&kdf=...` |
+| Encrypted field | the string `"encrypted:<base64>"` | an object with `"encrypted": true` and a `kdf` |
+
+The spec describes legacy labels as encrypted URLs with no `kdf` parameter.
+It leaves their format to each implementation, so **each library reads only
+its own legacy format**. `@wemush/wols` (TypeScript) 1.2 labels are
+`wemush://v1/encrypted/...` URLs with no `kdf`. This library rejects them
+with `LEGACY_FORMAT` even when `allow_legacy=True`. Decrypt those with
+`@wemush/wols` and its `allowLegacy` option. `@wemush/wols` doesn't read
+this library's 1.2 base64 payloads either.
+
+Legacy labels are weaker than 1.3.0 labels, so treat `allow_legacy=True` as
+a temporary setting:
+
+- Legacy field ciphertexts aren't bound to their field or label. A value
+  copied into another field or another label still decrypts. In 1.3.0 that
+  fails with `AUTHENTICATION_FAILED`.
+- A legacy whole-label payload doesn't carry the specimen ID outside the
+  ciphertext, so nothing checks the decrypted `id` against the label.
+- Legacy keys are raw keys only. (`@wemush/wols` 1.2 derived passphrase
+  keys with one fixed salt shared by every label.)
+
+On the legacy path, a `str` key is still read as a base64-encoded key, the
+way 1.2 read it. Everywhere else, a `str` is a passphrase.
+
+### Re-encrypt legacy labels
+
+Decode with `allow_legacy=True`, then encrypt again. Only the 1.3.0 format
+is written.
+
+```python
+from wols.crypto import (
+    RawKey,
+    decrypt_specimen,
+    decrypt_specimen_fields,
+    encrypt_specimen,
+    encrypt_specimen_fields,
+    is_encrypted_url,
+)
+
+
+def is_legacy_label(text: str) -> bool:
+    """True for a stored value that isn't a 1.3.0 encrypted URL."""
+    return not is_encrypted_url(text)
+
+
+def upgrade_label(old_payload: str, key_b64: str) -> str:
+    """Re-encrypt a wols 1.2 payload as a WOLS 1.3.0 URL."""
+    key = RawKey(key_b64)  # the base64 key string you used with 1.2
+    specimen = decrypt_specimen(old_payload, key, allow_legacy=True)
+    return encrypt_specimen(specimen, key)  # ...&kdf=raw
+
+
+def upgrade_fields(old_label: dict, key_b64: str) -> dict:
+    """Re-encrypt the "encrypted:..." fields of a wols 1.2 label."""
+    key = RawKey(key_b64)
+    fields = [
+        name
+        for name, value in old_label.items()
+        if isinstance(value, str) and value.startswith("encrypted:")
+    ]
+    plain = decrypt_specimen_fields(old_label, key, allow_legacy=True)
+    return encrypt_specimen_fields(plain, key, fields)
+```
+
+To move to a passphrase at the same time, pass the passphrase (a `str`) to
+`encrypt_specimen` or `encrypt_specimen_fields` instead of `key`. A printed
+label keeps its old payload until you reprint it, so keep
+`allow_legacy=True` on readers until the old labels are retired.
+
+### A `str` key is now a passphrase
+
+In 1.2 a `str` secret was a base64-encoded 32-byte key. In 1.3.0 a `str` is
+always a passphrase (`kdf=pbkdf2`). Passing your old key string still
+works, but it encrypts with that string as a passphrase, which isn't what
+you want. For a raw key (`kdf=raw`), pass bytes, or wrap the key in
+`RawKey`:
+
+```python
+import base64
+
+from wols.crypto import RawKey, encrypt_specimen
+
+key_b64 = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="  # a 1.2 key string
+
+url = encrypt_specimen(specimen, base64.b64decode(key_b64))  # kdf=raw
+url = encrypt_specimen(specimen, RawKey(key_b64))  # kdf=raw, the same key
+```
+
+`RawKey(key)` takes 32 bytes, or standard base64 or base64url text with or
+without padding, and raises `WolsEncryptionError` (`INVALID_KEY`) for
+anything that isn't exactly 32 bytes. Every function that takes a secret
+accepts it, including the `allow_legacy` path. Its `repr` never shows the
+key.
+
+`encrypt_specimen` and `encrypt_specimen_fields` emit a `WolsWarning` when a
+`str` secret looks like a base64-encoded 32-byte key. Pass
+`strict_passphrase=True` to raise `WolsEncryptionError` (`INVALID_KEY`)
+instead. The default is still the warning.
+
+### ID validation is looser by default
+
+1.3.0 accepts any non-empty suffix after `wemush:`, as the spec requires.
+In 1.2, `validate_specimen` required a 24-character lowercase CUID and
+`validate_specimen_id` defaulted to `STRICT`. To get the old checks back,
+pass the mode explicitly:
+
+```python
+from wols import IdValidationMode, validate_specimen, validate_specimen_id
+
+label = {
+    "@context": "https://wemush.com/wols/v1",
+    "@type": "Specimen",
+    "id": "wemush:WM-LC-250114-000001",
+    "version": "1.3.0",
+    "type": "CULTURE",
+    "species": "Pleurotus ostreatus",
+}
+
+assert validate_specimen(label).valid  # 1.3.0 default: any suffix
+assert not validate_specimen(label, id_mode=IdValidationMode.CUID).valid  # 1.2
+assert not validate_specimen_id(label["id"], IdValidationMode.STRICT)  # 1.2
+```
+
+`wols validate` on the command line uses the 1.3.0 default and has no
+option for a stricter ID check.
+
 ## Verification
 
 After installation, verify the library works:
