@@ -53,6 +53,7 @@ class TestIsOutdated:
         """Verify older versions are outdated."""
         assert is_outdated("1.0.0") is True
         assert is_outdated("1.1.0") is True
+        assert is_outdated("1.3.0") is True
 
     def test_current_version_not_outdated(self) -> None:
         """Verify current version is not outdated."""
