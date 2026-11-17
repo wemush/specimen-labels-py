@@ -21,20 +21,31 @@ is accepted.
   signed as the RFC 8785 (JCS) canonical form of the label as parsed, without
   its top-level `signature`; encrypted URLs are signed byte for byte before
   `&sig=`.
-- `VerificationResult` with a `SignatureStatus` (`unsigned`, `malformed`,
-  `unknown-kid`, `invalid`, `valid`, checked in that order), `kid`, and
-  `reason`. Verification never raises for a bad signature.
+- `VerificationResult` with a `SignatureStatus`, `kid`, and `reason`.
+  Verification never raises for a bad signature. Checks run in the
+  specification's order: the label text must be an I-JSON object, so it is
+  `malformed`, signed or not, if it isn't JSON, isn't an object, repeats a
+  member name at any depth (compared after unescaping), or holds a lone
+  surrogate, `NaN`, `Infinity`, or an overflowing number; then `unsigned`;
+  then the token and URL rules (`malformed`); then `unknown-kid`; then
+  `invalid` or `valid`.
 - `TrustedKey`, `TrustStore`, and `trust_store_from_key_set()` for the
   optional `/.well-known/wols-keys.json` key set document. Keys are never read
-  from a label.
+  from a label. An unusable entry (not Ed25519, not 32 bytes, or not a curve
+  point) raises `WolsTrustStoreError` when it is built, and verifies as
+  `invalid` if one reaches verification anyway.
+- Signing refuses label text that isn't I-JSON, and encrypted URLs with no
+  query, an empty query, or an existing `sig`.
 - `wols.crypto.jcs`: RFC 8785 canonicalization and a JSON parser that reports
   duplicate member names. It handles where Python's `json` differs from
   I-JSON: integers are rounded to doubles, and `NaN`, `Infinity`, overflowing
   numbers, and lone surrogates are refused.
-- `WolsSignatureError`, raised only when a label can't be signed.
+- `WolsSignatureError`, raised only when a label can't be signed, and
+  `WolsTrustStoreError` (also a `ValueError`) for unusable trust store
+  entries.
 - `SUPPORTED_VERSIONS`: the label versions validation accepts without a
   warning.
-- Conformance: vendored the vectors from open-standard commit `dead46a`
+- Conformance: vendored the vectors from open-standard commit `8e02eca`
   (`1.4.0-rc.1`), including `signatures.json` and the new
   `decrypt-with-sig`, `decrypt-signed-url`, and `signed-label-valid` cases.
   Every case passes. The decrypt cases now also check that `sig` is kept

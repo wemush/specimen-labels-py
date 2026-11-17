@@ -265,10 +265,10 @@ statuses, checked in this order:
 
 | Status | Meaning |
 | --- | --- |
-| `UNSIGNED` | No `signature` member or `sig` parameter. Anyone can strip a signature, so if you require signatures, treat this as a failure. |
-| `MALFORMED` | A signature is present, but the token, the label, or the URL breaks a rule. |
+| `MALFORMED` | The label text isn't an I-JSON object, signed or not: not JSON, not an object, a duplicate member name, a lone surrogate, or `NaN`, `Infinity`, or an overflowing number. Or a signature is present, but the token or the URL breaks a rule. |
+| `UNSIGNED` | A well-formed label with no `signature` member, or a URL with no `sig` parameter. Anyone can strip a signature, so if you require signatures, treat this as a failure. |
 | `UNKNOWN_KID` | The kid isn't in your trust store. "Signed by an unknown key", never valid. |
-| `INVALID` | The kid is trusted, but the signature doesn't match: the label was changed, or signed by someone else. |
+| `INVALID` | The kid is in your trust store, but the signature doesn't match: the label was changed, or signed by someone else. |
 | `VALID` | The key your trust store lists for the kid signed exactly these bytes. |
 
 Pass the label text or URL **exactly as scanned**. The embedded signature
@@ -286,6 +286,16 @@ of it. To load an issuer's published keys, fetch
 `https://{issuer-host}/.well-known/wols-keys.json` yourself from a host you
 chose independently of the label, and pass it to `trust_store_from_key_set()`.
 Verification makes no network requests.
+
+`TrustedKey` checks its key when you build it: an algorithm other than
+`Ed25519`, a key that isn't 32 bytes, or bytes that aren't a point on the curve
+raise `WolsTrustStoreError` (a `ValueError`). `trust_store_from_key_set()`
+rejects the whole document if any entry is unusable. If an unusable entry
+reaches verification anyway (for example, a plain dict in place of a
+`TrustedKey`), that kid verifies as `INVALID`.
+
+Signing refuses (`WolsSignatureError`) label text that isn't an I-JSON
+object, a URL with no query or an empty one, and a URL that already has `sig`.
 
 **What a `VALID` signature proves**: the holder of the private key that your
 trust store lists for the kid signed these exact bytes. It does **not** prove:

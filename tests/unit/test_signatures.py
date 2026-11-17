@@ -24,6 +24,7 @@ from wols import (
     Specimen,
     SpecimenType,
     WolsSignatureError,
+    WolsTrustStoreError,
     create_specimen,
     to_json,
     validate_specimen,
@@ -69,6 +70,8 @@ LABEL = {
 }
 LABEL_TEXT = json.dumps(LABEL)
 DUMMY_TOKEN = f"{KID}.{'A' * 86}"
+# y = 2 has no matching x on edwards25519 (the vectors' off-curve key).
+OFF_CURVE = (2).to_bytes(32, "little")
 
 
 def _status(label: object, store: TrustStore = STORE) -> SignatureStatus:
@@ -172,11 +175,31 @@ class TestVerifyEmbedded:
         assert result.status is SignatureStatus.MALFORMED
         assert result.reason == "label repeats a member name"
 
-    def test_unsigned_is_checked_before_malformed_rules(self) -> None:
-        # The check order is unsigned first, so an unsigned label with a
-        # duplicate name, a lone surrogate, or NaN is unsigned.
-        for text in ('{"a":1,"a":2}', '{"a":"\\ud800"}', '{"a":NaN}'):
-            assert _status(text) is SignatureStatus.UNSIGNED
+    @pytest.mark.parametrize(
+        "text",
+        [
+            '{"a":1,"a":2}',
+            '{"a":{"b":1,"b":1}}',
+            '{"stage":1,"\\u0073tage":2}',
+            '{"a":"\\ud800"}',
+            '{"\\udc00":1}',
+            '{"a":NaN}',
+            '{"a":-Infinity}',
+            '{"a":1e400}',
+        ],
+    )
+    def test_i_json_is_checked_before_unsigned(self, text: str) -> None:
+        # The label is parsed as I-JSON first, so these are malformed even
+        # without a signature.
+        assert _status(text) is SignatureStatus.MALFORMED
+
+    def test_i_json_rules_apply_to_the_signature_member(self) -> None:
+        assert _status({"signature": "\ud800"}) is SignatureStatus.MALFORMED
+        assert _status({"signature": float("nan")}) is SignatureStatus.MALFORMED
+
+    def test_parsed_object_must_be_json(self) -> None:
+        assert _status({"a": (1, 2)}) is SignatureStatus.MALFORMED
+        assert _status({"a": 1}) is SignatureStatus.UNSIGNED
 
     def test_non_object_is_malformed(self) -> None:
         assert _status("[]") is SignatureStatus.MALFORMED
@@ -188,19 +211,32 @@ class TestVerifyEmbedded:
         with pytest.raises(TypeError):
             verify_specimen(specimen, STORE)  # type: ignore[arg-type]
 
-    def test_never_raises_for_odd_trust_stores(self) -> None:
+    @pytest.mark.parametrize("store", [{}, {"other": TrustedKey(_public(SEED))}, None])
+    def test_missing_kid_is_unknown(self, store: object) -> None:
         signed = sign_specimen(LABEL_TEXT, SEED, KID)
-        bad_stores: list[object] = [
-            {},
-            {KID: _public(SEED)},  # bare bytes, not a TrustedKey
-            {KID: TrustedKey(_public(SEED), alg="EdDSA")},
-            {KID: TrustedKey(b"short")},
-            None,
+        result = verify_specimen(signed, store)  # type: ignore[arg-type]
+        assert result.status is SignatureStatus.UNKNOWN_KID
+        assert result.kid == KID
+
+    def test_unusable_entry_that_reaches_verification_is_invalid(self) -> None:
+        signed = sign_specimen(LABEL_TEXT, SEED, KID)
+        good = TrustedKey(_public(SEED))
+        off_curve = TrustedKey(_public(SEED))
+        object.__setattr__(off_curve, "public_key", OFF_CURVE)
+        wrong_alg = TrustedKey(_public(SEED))
+        object.__setattr__(wrong_alg, "alg", "Ed448")
+        entries: list[object] = [
+            _public(SEED),  # bare bytes, not a TrustedKey
+            {"alg": "Ed25519", "public_key": _public(SEED)},
+            off_curve,
+            wrong_alg,
         ]
-        for store in bad_stores:
-            result = verify_specimen(signed, store)  # type: ignore[arg-type]
-            assert result.status is SignatureStatus.UNKNOWN_KID
+        for entry in entries:
+            result = verify_specimen(signed, {KID: entry})  # type: ignore[dict-item]
+            assert result.status is SignatureStatus.INVALID
             assert result.kid == KID
+            assert result.reason is not None and "configuration" in result.reason
+        assert verify_specimen(signed, {KID: good}).valid
 
     def test_kid_maps_to_a_different_key(self) -> None:
         store = {KID: TrustedKey(_public(OTHER_SEED))}
@@ -327,6 +363,7 @@ class TestEncryptedUrl:
             ("wemush://v1/encrypted/ü?e=a", "INVALID_URL"),
             ("web+wemush://v1/encrypted/x?e=a", "INVALID_URL"),
             ("wemush://v1/encrypted/x", "INVALID_URL"),
+            ("wemush://v1/encrypted/x?", "INVALID_URL"),
         ],
     )
     def test_refuses_urls_it_cannot_sign(self, url: str, code: str) -> None:
@@ -335,21 +372,42 @@ class TestEncryptedUrl:
         assert exc_info.value.code == code
 
 
+class TestTrustedKey:
+    @pytest.mark.parametrize(
+        ("public_key", "alg"),
+        [
+            (OFF_CURVE, "Ed25519"),
+            (b"\x00" * 31, "Ed25519"),
+            (b"\x00" * 33, "Ed25519"),
+            ((2**255 - 19).to_bytes(32, "little"), "Ed25519"),  # y >= p
+            ((1 | 1 << 255).to_bytes(32, "little"), "Ed25519"),  # x = 0, sign 1
+            ("not bytes", "Ed25519"),
+            (_public(SEED), "Ed448"),
+        ],
+    )
+    def test_unusable_keys_are_rejected_when_built(
+        self, public_key: object, alg: str
+    ) -> None:
+        with pytest.raises(WolsTrustStoreError) as exc_info:
+            TrustedKey(public_key, alg=alg)  # type: ignore[arg-type]
+        assert exc_info.value.code == "INVALID_TRUSTED_KEY"
+        assert isinstance(exc_info.value, ValueError)
+
+    def test_real_keys_are_curve_points(self) -> None:
+        for i in range(32):
+            seed = hashlib.sha256(bytes([i])).digest()
+            TrustedKey(_public(seed))
+        TrustedKey(bytearray(_public(SEED)))  # bytearray is copied to bytes
+
+
 class TestKeySet:
     def test_builds_trust_store(self) -> None:
         public = b64url_encode(_public(SEED))
-        doc = {
-            "keys": [
-                {"kid": KID, "alg": "Ed25519", "publicKey": public},
-                {"kid": "future", "alg": "ML-DSA-44", "publicKey": "AAAA"},
-            ]
-        }
+        doc = {"keys": [{"kid": KID, "alg": "Ed25519", "publicKey": public}]}
         store = trust_store_from_key_set(json.dumps(doc))
         assert store[KID] == TrustedKey(_public(SEED))
         signed = sign_specimen(LABEL_TEXT, SEED, KID)
         assert _status(signed, store) is SignatureStatus.VALID
-        future = sign_specimen(LABEL_TEXT, SEED, "future")
-        assert _status(future, store) is SignatureStatus.UNKNOWN_KID
 
     @pytest.mark.parametrize(
         "doc",
@@ -361,6 +419,17 @@ class TestKeySet:
             {"keys": [{"kid": "a", "alg": "Ed25519"}]},
             {"keys": [{"kid": "a", "alg": "Ed25519", "publicKey": "A" * 42}]},
             {"keys": [{"kid": "a", "alg": "Ed25519", "publicKey": "A" * 42 + "B"}]},
+            {"keys": [{"kid": "a", "alg": "Ed448", "publicKey": "A" * 43}]},
+            {
+                "keys": [
+                    {
+                        "kid": "a",
+                        "alg": "Ed25519",
+                        "publicKey": "AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                    }
+                ]
+            },
+            "not json",
             {
                 "keys": [
                     {"kid": "a", "alg": "Ed25519", "publicKey": "A" * 43},
@@ -370,7 +439,7 @@ class TestKeySet:
         ],
     )
     def test_rejects_malformed_documents(self, doc: object) -> None:
-        with pytest.raises(ValueError):
+        with pytest.raises(WolsTrustStoreError):
             trust_store_from_key_set(doc)  # type: ignore[arg-type]
 
 

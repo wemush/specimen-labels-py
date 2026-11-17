@@ -51,6 +51,7 @@ from wols.exceptions import (
     WolsError,
     WolsParseError,
     WolsSignatureError,
+    WolsTrustStoreError,
     WolsValidationError,
     WolsWarning,
 )
@@ -123,6 +124,7 @@ __all__ = [
     "WolsError",
     "WolsParseError",
     "WolsSignatureError",
+    "WolsTrustStoreError",
     "WolsValidationError",
     "WolsWarning",
     "__version__",

@@ -33,7 +33,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from wols.crypto.jcs import CanonicalizationError, canonicalize, parse_json
-from wols.exceptions import WolsSignatureError
+from wols.exceptions import WolsSignatureError, WolsTrustStoreError
 
 if TYPE_CHECKING:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -93,14 +93,16 @@ class SignatureStatus(StrEnum):
     """No top-level ``signature`` member, or no ``sig`` parameter."""
 
     MALFORMED = "malformed"
-    """A signature is present, but the token, label, or URL breaks a rule."""
+    """The label text isn't an I-JSON object (signed or not), or a signature
+    is present but the token or URL breaks a rule."""
 
     UNKNOWN_KID = "unknown-kid"
-    """The token is well-formed, but its kid isn't an Ed25519 key in the
-    trust store. "Signed by an unknown key", never valid."""
+    """The token is well-formed, but its kid isn't in the trust store.
+    "Signed by an unknown key", never valid."""
 
     INVALID = "invalid"
-    """The kid is trusted, but the signature doesn't verify under its key."""
+    """The kid is in the trust store, but the signature doesn't verify under
+    its entry (including an unusable entry that reached verification)."""
 
     VALID = "valid"
     """The signature verifies under the trust store's key for the kid."""
@@ -132,14 +134,26 @@ class VerificationResult:
 class TrustedKey:
     """A public key in a trust store.
 
+    The key is checked when it is built: an algorithm other than
+    ``"Ed25519"``, a key that isn't exactly 32 bytes, or 32 bytes that don't
+    decode to a curve point (RFC 8032 section 5.1.3) is a configuration
+    error and raises :class:`~wols.WolsTrustStoreError`. An unusable entry
+    that reaches verification anyway (for example a trust store holding
+    something other than a ``TrustedKey``) verifies as ``INVALID``.
+
     Attributes:
         public_key: The 32-byte Ed25519 public key (the encoded point).
-        alg: The algorithm. Only ``"Ed25519"`` verifies; an entry with any
-            other algorithm is treated as absent (``UNKNOWN_KID``).
+        alg: The algorithm. Only ``"Ed25519"`` is defined.
     """
 
     public_key: bytes
     alg: str = ED25519
+
+    def __post_init__(self) -> None:
+        problem = _key_problem(self.alg, self.public_key)
+        if problem is not None:
+            raise WolsTrustStoreError(message=problem)
+        object.__setattr__(self, "public_key", bytes(self.public_key))
 
 
 type TrustStore = Mapping[str, TrustedKey]
@@ -149,6 +163,50 @@ type TrustStore = Mapping[str, TrustedKey]
 # ---------------------------------------------------------------------------
 # Encoding helpers
 # ---------------------------------------------------------------------------
+
+
+# Edwards25519 (RFC 8032 section 5.1): field prime and curve constant.
+_P = 2**255 - 19
+_D = (-121665 * pow(121666, _P - 2, _P)) % _P
+_SQRT_M1 = pow(2, (_P - 1) // 4, _P)
+
+
+def _is_curve_point(encoded: bytes) -> bool:
+    """Decode a 32-byte point as RFC 8032 section 5.1.3 specifies.
+
+    ``cryptography`` accepts any 32 bytes as a public key, so off-curve
+    entries are caught here.
+    """
+    n = int.from_bytes(encoded, "little")
+    x_sign = n >> 255
+    y = n & ((1 << 255) - 1)
+    if y >= _P:
+        return False
+    u = (y * y - 1) % _P
+    v = (_D * y * y + 1) % _P
+    x2 = u * pow(v, _P - 2, _P) % _P
+    x = pow(x2, (_P + 3) // 8, _P)
+    if (x * x - x2) % _P != 0:
+        x = x * _SQRT_M1 % _P
+        if (x * x - x2) % _P != 0:
+            return False
+    return not (x == 0 and x_sign == 1)
+
+
+def _key_problem(alg: object, public_key: object) -> str | None:
+    """Why a trust store entry is unusable, or None if it is usable."""
+    if alg != ED25519:
+        return f"trust store algorithm must be {ED25519!r}, got {alg!r}"
+    if not isinstance(public_key, bytes | bytearray):
+        return "trust store public key must be bytes"
+    if len(public_key) != PUBLIC_KEY_LENGTH:
+        return (
+            f"Ed25519 public key must be {PUBLIC_KEY_LENGTH} bytes, "
+            f"got {len(public_key)}"
+        )
+    if not _is_curve_point(bytes(public_key)):
+        return "Ed25519 public key is not a point on the curve"
+    return None
 
 
 def _b64url(data: bytes) -> str:
@@ -296,25 +354,34 @@ def _verify_signature(
     from cryptography.exceptions import InvalidSignature
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-    entry = trust_store.get(kid) if isinstance(trust_store, Mapping) else None
-    if (
-        not isinstance(entry, TrustedKey)
-        or entry.alg != ED25519
-        or not isinstance(entry.public_key, bytes | bytearray)
-        or len(entry.public_key) != PUBLIC_KEY_LENGTH
-    ):
+    if not isinstance(trust_store, Mapping) or kid not in trust_store:
         return VerificationResult(
             SignatureStatus.UNKNOWN_KID,
             kid=kid,
-            reason=f"kid {kid!r} is not an Ed25519 key in the trust store",
+            reason=f"kid {kid!r} is not in the trust store",
+        )
+    entry = trust_store[kid]
+    # A TrustedKey was checked when built; anything else is checked here.
+    # An unusable entry is a configuration error and verifies as invalid.
+    problem = (
+        _key_problem(entry.alg, entry.public_key)
+        if isinstance(entry, TrustedKey)
+        else "trust store entry is not a TrustedKey"
+    )
+    if problem is not None:
+        return VerificationResult(
+            SignatureStatus.INVALID,
+            kid=kid,
+            reason=f"unusable trust store entry for {kid!r} "
+            f"(configuration error): {problem}",
         )
     try:
         public_key = Ed25519PublicKey.from_public_bytes(bytes(entry.public_key))
-    except ValueError:
+    except ValueError:  # pragma: no cover - _key_problem checks the length
         return VerificationResult(
-            SignatureStatus.UNKNOWN_KID,
+            SignatureStatus.INVALID,
             kid=kid,
-            reason=f"trust store entry for {kid!r} is not a valid Ed25519 key",
+            reason=f"unusable trust store entry for {kid!r} (configuration error)",
         )
     # RFC 8032 section 5.1.7: reject S >= L. Checked here as well as by the
     # backend, so a malleated signature is invalid whatever OpenSSL does.
@@ -461,9 +528,10 @@ def sign_encrypted_url(
         _check_url_text(url)
     except _Malformed as e:
         raise WolsSignatureError(message=str(e), code="INVALID_URL") from e
-    if "?" not in url:
-        # Without a query, "&sig=" would land in the path and the result
-        # would verify as unsigned.
+    q = url.find("?")
+    if q == -1 or q == len(url) - 1:
+        # Without a query, "&sig=" would land in the path (or follow an
+        # empty query) and the result wouldn't verify as signed.
         raise WolsSignatureError(
             message="Encrypted URL has no query parameters", code="INVALID_URL"
         )
@@ -491,10 +559,13 @@ def verify_embedded(
     :class:`~wols.Specimen`: the body is canonicalized from what was
     received, including members this library doesn't know.
 
-    Checks run in the order the specification fixes: ``unsigned``, then
-    every ``malformed`` rule, then the trust store (``unknown-kid``), then
-    the signature (``invalid`` or ``valid``). A label that isn't JSON at all
-    is ``malformed``, since there is no member to look for.
+    Checks run in the order the specification fixes. First the label must
+    be an I-JSON object: text that isn't JSON, a non-object, a duplicate
+    member name at any depth (compared after unescaping), a lone surrogate,
+    or a non-finite or overflowing number is ``malformed`` whether or not
+    the label is signed. Then ``unsigned``, then the token rules
+    (``malformed``), then the trust store (``unknown-kid``), then the
+    signature (``invalid`` or ``valid``).
 
     Args:
         label: Embedded label text (``str`` or UTF-8 ``bytes``), or the raw
@@ -517,19 +588,22 @@ def verify_embedded(
         obj = label
     if not isinstance(obj, Mapping):
         return _malformed("label is not a JSON object")
+    if duplicate_names:
+        return _malformed("label repeats a member name")
+    try:
+        # The whole label, signature included, must be I-JSON.
+        canonicalize(dict(obj))
+        body = _embedded_body(obj)
+    except CanonicalizationError as e:
+        return _malformed(f"label is not I-JSON: {e}")
     if "signature" not in obj:
         return VerificationResult(
             SignatureStatus.UNSIGNED, reason="label has no top-level 'signature'"
         )
-    if duplicate_names:
-        return _malformed("label repeats a member name")
     try:
         kid, signature = _parse_token(obj["signature"])
-        body = _embedded_body(obj)
     except _Malformed as e:
         return _malformed(str(e))
-    except CanonicalizationError as e:
-        return _malformed(f"label can't be canonicalized: {e}")
     message = _signing_input(FORM_EMBEDDED, kid, body)
     return _verify_signature(kid, signature, message, trust_store)
 
@@ -645,37 +719,53 @@ def trust_store_from_key_set(document: str | bytes | Mapping[str, Any]) -> Trust
         document: The key set document, as text or parsed JSON.
 
     Returns:
-        A trust store with one entry per key. Keys with an algorithm other
-        than Ed25519 are kept but never verify (``UNKNOWN_KID``).
+        A trust store with one entry per key.
 
     Raises:
-        ValueError: If the document is malformed, a public key isn't 32
-            bytes of canonical base64url, or a kid appears twice.
+        WolsTrustStoreError: (a ``ValueError``) If the document is
+            malformed, a kid is invalid or appears twice, or any entry is
+            unusable: an algorithm other than Ed25519, or a public key that
+            isn't 32 bytes of canonical base64url encoding a curve point.
+            Unusable entries are configuration errors, so the whole document
+            is rejected rather than silently trimmed.
     """
     import json
 
-    doc: Any = json.loads(document) if isinstance(document, str | bytes) else document
+    try:
+        doc: Any = (
+            json.loads(document) if isinstance(document, str | bytes) else document
+        )
+    except ValueError as e:
+        raise WolsTrustStoreError(message=f"key set is not valid JSON: {e}") from e
     keys = doc.get("keys") if isinstance(doc, Mapping) else None
     if not isinstance(keys, list):
-        raise ValueError("key set document must be an object with a 'keys' array")
+        raise WolsTrustStoreError(
+            message="key set document must be an object with a 'keys' array"
+        )
     store: dict[str, TrustedKey] = {}
     for entry in keys:
         if not isinstance(entry, Mapping):
-            raise ValueError("each key must be an object")
+            raise WolsTrustStoreError(message="each key must be an object")
         kid, alg, encoded = entry.get("kid"), entry.get("alg"), entry.get("publicKey")
         if not isinstance(kid, str) or not _KID_RE.fullmatch(kid):
-            raise ValueError(f"invalid kid {kid!r}")
-        if not isinstance(alg, str) or not isinstance(encoded, str):
-            raise ValueError(f"key {kid!r} needs string 'alg' and 'publicKey'")
+            raise WolsTrustStoreError(message=f"invalid kid {kid!r}")
         if kid in store:
-            raise ValueError(f"kid {kid!r} appears more than once")
-        if alg == ED25519:
-            if not re.fullmatch(r"[A-Za-z0-9_-]{43}", encoded):
-                raise ValueError(f"publicKey for {kid!r} is not 32 bytes of base64url")
-            public_key = base64.urlsafe_b64decode(encoded + "=")
-            if _b64url(public_key) != encoded:
-                raise ValueError(f"publicKey for {kid!r} is not canonical base64url")
-        else:
-            public_key = b""
-        store[kid] = TrustedKey(public_key=public_key, alg=alg)
+            raise WolsTrustStoreError(message=f"kid {kid!r} appears more than once")
+        if not isinstance(alg, str):
+            raise WolsTrustStoreError(message=f"key {kid!r} needs a string 'alg'")
+        if not isinstance(encoded, str) or not re.fullmatch(
+            r"[A-Za-z0-9_-]{43}", encoded
+        ):
+            raise WolsTrustStoreError(
+                message=f"publicKey for {kid!r} is not 32 bytes of base64url"
+            )
+        public_key = base64.urlsafe_b64decode(encoded + "=")
+        if _b64url(public_key) != encoded:
+            raise WolsTrustStoreError(
+                message=f"publicKey for {kid!r} is not canonical base64url"
+            )
+        try:
+            store[kid] = TrustedKey(public_key=public_key, alg=alg)
+        except WolsTrustStoreError as e:
+            raise WolsTrustStoreError(message=f"key {kid!r}: {e.message}") from e
     return store

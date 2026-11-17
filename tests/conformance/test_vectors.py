@@ -43,7 +43,11 @@ from wols.crypto import (
     verify_specimen,
 )
 from wols.crypto.jcs import canonicalize, parse_json
-from wols.exceptions import WolsEncryptionError
+from wols.exceptions import (
+    WolsEncryptionError,
+    WolsSignatureError,
+    WolsTrustStoreError,
+)
 
 VECTORS_DIR = Path(__file__).parent / "vectors"
 VECTOR_FILES = (
@@ -59,12 +63,18 @@ VECTOR_FILES = (
 VECTOR_VERSIONS = {"signatures": "1.4.0"}
 
 _SIGNATURES = json.loads((VECTORS_DIR / "signatures.json").read_text(encoding="utf-8"))
-TRUST_STORE: TrustStore = {
-    kid: TrustedKey(
-        public_key=b64url_decode(entry["publicKeyBase64url"]), alg=entry["alg"]
-    )
-    for kid, entry in _SIGNATURES["trustStore"].items()
-}
+
+
+def _trust_store(entries: dict[str, dict[str, str]]) -> TrustStore:
+    return {
+        kid: TrustedKey(
+            public_key=b64url_decode(entry["publicKeyBase64url"]), alg=entry["alg"]
+        )
+        for kid, entry in entries.items()
+    }
+
+
+TRUST_STORE = _trust_store(_SIGNATURES["trustStore"])
 TEST_SEEDS = {
     name: b64url_decode(key["seedBase64url"])
     for name, key in _SIGNATURES["testKeys"].items()
@@ -188,6 +198,14 @@ def check_sign(case: dict[str, Any]) -> None:
     seed = TEST_SEEDS[inp["key"]]
     prefix = _signing_prefix(inp["form"], kid)
 
+    if expected.get("refused"):
+        with pytest.raises(WolsSignatureError):
+            if inp["form"] == "embedded":
+                sign_specimen(inp["label"], seed, kid)
+            else:
+                sign_encrypted_url(inp["url"], seed, kid)
+        return
+
     if inp["form"] == "embedded":
         assert prefix + _embedded_body(inp["label"]) == expected["signingInput"]
         signed = sign_specimen(inp["label"], seed, kid)
@@ -208,16 +226,35 @@ def check_sign(case: dict[str, Any]) -> None:
     assert result.kid == kid
 
 
+def _unchecked_trust_store(entries: dict[str, dict[str, str]]) -> Any:
+    """The vector's entries as plain dicts, skipping TrustedKey's checks, so
+    an unusable entry reaches verification."""
+    return {
+        kid: {"alg": e["alg"], "public_key": b64url_decode(e["publicKeyBase64url"])}
+        for kid, e in entries.items()
+    }
+
+
 def check_verify(case: dict[str, Any]) -> None:
     inp = case["input"]
     expected = case["expected"]
+    store = TRUST_STORE
+    if "trustStore" in inp:
+        if expected.get("configError"):
+            # Rejected when the trust store is built ...
+            with pytest.raises(WolsTrustStoreError):
+                _trust_store(inp["trustStore"])
+            # ... and invalid if an unusable entry reaches verification.
+            store = _unchecked_trust_store(inp["trustStore"])
+        else:
+            store = _trust_store(inp["trustStore"])
     if inp["form"] == "embedded":
         label = inp["label"]
-        direct = verify_embedded(label, TRUST_STORE)
+        direct = verify_embedded(label, store)
     else:
         label = inp["url"]
-        direct = verify_encrypted_url(label, TRUST_STORE)
-    result = verify_specimen(label, TRUST_STORE)
+        direct = verify_encrypted_url(label, store)
+    result = verify_specimen(label, store)
 
     assert result.status == expected["status"], result
     assert direct == result
