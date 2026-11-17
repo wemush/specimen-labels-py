@@ -85,6 +85,13 @@ class TestDecoding:
             restored = decrypt_specimen_fields(_label("F1"), KEY)
         assert restored["strain"]["generation"] == "F1"
 
+    def test_non_object_strain_is_left_alone(self) -> None:
+        label = {**_label("F1"), "strain": "Blue Oyster"}
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", WolsWarning)
+            restored = decrypt_specimen_fields(label, KEY)
+        assert restored["strain"] == "Blue Oyster"
+
 
 class TestGenerators:
     def test_create_and_serialize_write_a_string(self) -> None:
