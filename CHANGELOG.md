@@ -7,10 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Signatures implement the WOLS `1.4.0-rc.1` scheme
-([open-standard#24](https://github.com/wemush/open-standard/pull/24)). That
-specification is a release candidate, so they must not be released until it
-is accepted.
+## [1.4.0] - 2026-11-17
+
+Implements the final WOLS 1.4.0 specification
+([open-standard#29](https://github.com/wemush/open-standard/pull/29), commit
+`02079df`). Every `MUST` and `SHOULD` case in the WOLS conformance vectors
+passes, including all 112 `MUST` cases in `signatures.json`. Summary:
+
+- **Signatures**: `sign_specimen`, `sign_encrypted_url`, and
+  `verify_specimen` (Ed25519 over RFC 8785 JCS for embedded labels, over the
+  exact URL bytes for encrypted URLs), with five verification statuses and
+  keys taken only from a caller-supplied trust store.
+- **Key sets**: `trust_store_from_key_set()` loads
+  `/.well-known/wols-keys.json` documents and skips entries for algorithms it
+  doesn't support.
+- **Numeric `strain.generation`**: an integer is read as its decimal string,
+  with a warning, and only the string is written.
+- **`RawKey`**: an explicit 32-byte raw key type, so a base64 key string is
+  no longer mistaken for a passphrase.
+- **Migration guide**: a "Migrating from 1.2" README section, with its
+  examples run as tests against real `wols` 1.2.0 output.
+- **Interop**: CI round-trips encrypted labels with `@wemush/wols` across the
+  shared 51-case matrix, in both directions.
+
+WOLS 1.3.1 was not released separately. Its release candidate's
+clarifications (a reserved, never-verified `sig`) ship as part of 1.4.0, and
+1.3.0 already behaved that way, so there is no `wols` 1.3.1.
 
 ### Added
 
@@ -67,23 +89,29 @@ is accepted.
   `WolsTrustStoreError` (also a `ValueError`) for unusable trust store
   entries.
 - `SUPPORTED_VERSIONS`: the label versions validation accepts without a
-  warning.
-- Conformance: vendored the vectors from open-standard commit `a44dd3a`
-  (`1.4.0-rc.1`, merged to `main`), including `signatures.json` (with its
+  warning, `{"1.3.0", "1.4.0"}`.
+- Conformance: vendored the vectors from the final 1.4.0 specification
+  (open-standard `02079df`; the files are byte-identical to the
+  `1.4.0-rc.1` copies from `a44dd3a`), including `signatures.json` (with its
   `loadKeySet` cases) and the new `decrypt-with-sig`, `decrypt-signed-url`,
-  and `signed-label-valid` cases. Every `MUST` case passes. The three
-  `SHOULD` cases from open-standard#27 (an integer `strain.generation`) are
-  not met yet and are reported as `xfail`. The decrypt cases now also check that `sig` is kept
-  unchanged.
+  and `signed-label-valid` cases. Every `MUST` and `SHOULD` case passes. The
+  decrypt cases now also check that `sig` is kept unchanged.
 
 ### Changed
 
 - The base64-key `WolsWarning` message now also suggests `RawKey(key)`.
+- **`WOLS_VERSION` and `__version__` are `"1.4.0"`**, so new labels say
+  `"version": "1.4.0"`. The wire format is unchanged: 1.3.0 labels decode
+  the same way, and `wols` 1.3.0 reads 1.4.0 labels (with an
+  `INVALID_VERSION` warning, since it expects exactly `1.3.0`).
 - `validate_specimen` no longer warns `INVALID_VERSION` for `"version":
-  "1.3.1"` or `"1.4.0"`. Those versions change no wire format, and 1.4.0's
-  only addition, signatures, is now supported. Other versions still warn, and
-  new labels are still written as `1.3.0`.
-- **`strain.generation` is always written as a string** (WOLS `1.4.0-rc.1`,
+  "1.4.0"`. `"1.3.0"` still validates without a warning. Other versions still
+  warn, including `"1.3.1"`, which was never released.
+- `is_outdated("1.3.0")` is now `True`, and `migrate()` or `can_migrate()` on
+  a 1.3.0 label needs a registered `1.3.0` to `1.4.0` handler. Setting
+  `version` is enough:
+  `register_migration("1.3.0", "1.4.0", lambda d: {**d, "version": "1.4.0"})`.
+- **`strain.generation` is always written as a string** (WOLS 1.4.0,
   [open-standard#27](https://github.com/wemush/open-standard/pull/27)). wols
   1.3.0 accepted an `int` and wrote it as a JSON integer (`"generation": 1`),
   which the specification doesn't allow and `@wemush/wols` rejected. Now:
@@ -239,7 +267,8 @@ contains breaking changes. Read these entries before upgrading a `~=1.2` pin.
 - Full type annotations with PEP 561 support
 - 80%+ test coverage
 
-[Unreleased]: https://github.com/wemush/specimen-labels-py/compare/1.3.0...HEAD
+[Unreleased]: https://github.com/wemush/specimen-labels-py/compare/1.4.0...HEAD
+[1.4.0]: https://github.com/wemush/specimen-labels-py/compare/1.3.0...1.4.0
 [1.3.0]: https://github.com/wemush/specimen-labels-py/compare/1.2.0...1.3.0
 [0.1.1]: https://github.com/wemush/specimen-labels-py/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/wemush/specimen-labels-py/releases/tag/v0.1.0

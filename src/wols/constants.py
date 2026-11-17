@@ -9,12 +9,13 @@ from enum import Enum
 from typing import Literal
 
 # WOLS specification version
-WOLS_VERSION = "1.3.0"
+WOLS_VERSION = "1.4.0"
 
-# Label versions this library reads without a version warning. 1.3.1 and
-# 1.4.0 (release candidates) change no wire format: 1.4.0 adds signatures,
-# which this library verifies. New labels are still written as WOLS_VERSION.
-SUPPORTED_VERSIONS: frozenset[str] = frozenset({"1.3.0", "1.3.1", "1.4.0"})
+# Label versions this library reads without a version warning. 1.4.0 changes
+# no wire format: it adds signatures, which this library verifies, so 1.3.0
+# labels read the same way. 1.3.1 was never released (its release candidate
+# shipped as part of 1.4.0). New labels are written as WOLS_VERSION.
+SUPPORTED_VERSIONS: frozenset[str] = frozenset({"1.3.0", "1.4.0"})
 
 # JSON-LD context URL
 WOLS_CONTEXT = "https://wemush.com/wols/v1"

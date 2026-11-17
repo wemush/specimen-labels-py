@@ -1,4 +1,4 @@
-"""Ed25519 label signatures (WOLS v1.4.0, release candidate).
+"""Ed25519 label signatures (WOLS v1.4.0).
 
 Optional module - requires: pip install wols[crypto]
 

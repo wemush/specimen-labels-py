@@ -507,13 +507,13 @@ class TestKeySet:
 
 
 class TestVersion:
-    @pytest.mark.parametrize("version", ["1.3.0", "1.3.1", "1.4.0"])
+    @pytest.mark.parametrize("version", ["1.3.0", "1.4.0"])
     def test_supported_versions_validate_without_warning(self, version: str) -> None:
         result = validate_specimen({**LABEL, "version": version})
         assert result.valid
         assert not any(w.code == "INVALID_VERSION" for w in result.warnings)
 
-    @pytest.mark.parametrize("version", ["1.2.0", "1.5.0", "2.0.0"])
+    @pytest.mark.parametrize("version", ["1.2.0", "1.3.1", "1.5.0", "2.0.0"])
     def test_other_versions_still_warn(self, version: str) -> None:
         result = validate_specimen({**LABEL, "version": version})
         assert result.valid

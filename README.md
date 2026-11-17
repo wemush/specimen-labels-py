@@ -3,8 +3,10 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-yellow.svg)](https://opensource.org/licenses/Apache-2.0)
 
-The official Python implementation of the WeMush Open Labeling Standard (WOLS) v1.3.0 for specimen tracking in mushroom cultivation. It passes every case in the [WOLS conformance vectors](https://github.com/wemush/open-standard/tree/main/conformance) (see [`tests/conformance/`](tests/conformance/README.md)).
+The official Python implementation of the WeMush Open Labeling Standard (WOLS) v1.4.0 for specimen tracking in mushroom cultivation. It passes every case in the [WOLS conformance vectors](https://github.com/wemush/open-standard/tree/main/conformance) (see [`tests/conformance/`](tests/conformance/README.md)).
 
+> **Upgrading from 1.3?** 1.4.0 adds signatures and doesn't change the wire format. See [Upgrading from 1.3](#upgrading-from-13).
+>
 > **Upgrading from 1.2?** The encrypted format changed in 1.3.0 and is not compatible with 1.2.x output. See [Upgrading from 1.2](#upgrading-from-12).
 
 ![WOLS CLI Demo](demo/demo.gif)
@@ -15,7 +17,7 @@ The official Python implementation of the WeMush Open Labeling Standard (WOLS) v
 - **QR Codes**: Generate and scan QR codes (PNG, SVG, base64)
 - **Encryption**: WOLS 1.3.0 encrypted labels (AES-256-GCM, passphrase or raw key)
 - **Signatures**: Ed25519 signing and verification of embedded labels and
-  encrypted URLs (WOLS 1.4.0 release candidate)
+  encrypted URLs (WOLS 1.4.0)
 - **CLI**: Command-line interface for all operations
 - **Type Safe**: Full type annotations with PEP 561 support
 - **Interop**: CI round-trips encrypted labels (URL `kdf=pbkdf2`/`kdf=raw` and field-level) with the TypeScript [`@wemush/wols`](https://github.com/wemush/specimen-labels-js) library in both directions, against its npm release and its `main` branch (see [`tests/interop/`](tests/interop/))
@@ -224,9 +226,9 @@ Security notes:
 
 ### Signing and verifying
 
-> **Release candidate.** Signatures implement WOLS `1.4.0-rc.1`
-> ([open-standard#24](https://github.com/wemush/open-standard/pull/24)). The
-> scheme may still change before 1.4.0 is final.
+Signatures implement the WOLS 1.4.0
+[Cryptographic Signatures](https://github.com/wemush/open-standard/blob/main/SPECIFICATION.md#cryptographic-signatures)
+scheme and pass every `signatures.json` conformance vector.
 
 Signing requires the `crypto` extra. A signature is Ed25519 (RFC 8032) over
 the label as printed. Embedded labels carry it in the top-level `signature`
@@ -345,7 +347,7 @@ Other notes:
   label signed with one key can be linked to its issuer.
 - **Compact URLs** can't be signed in WOLS 1.4.0.
 
-## WOLS 1.3.0 Behavior
+## WOLS 1.3.0 and 1.4.0 Behavior
 
 - **IDs**: Any non-empty suffix after `wemush:` is accepted, including
   `wemush:clx1a2b3c4`, ULIDs, UUIDs, and `wemush:WM-LC-250114-000001`. For a
@@ -376,7 +378,29 @@ Other notes:
   decimal string with a `WolsWarning`, both when you construct a `Strain`
   and when you decode a label that carries one (WOLS 1.4.0).
 - **Compact URLs**: `parse_compact_url` accepts `wemush://`, `web+wemush://`,
-  and `https://`. The compact URL output is unchanged in 1.3.0.
+  and `https://`. The compact URL output is unchanged in 1.3.0 and 1.4.0.
+
+## Upgrading from 1.3
+
+1.4.0 adds signing and verification and doesn't change the wire format. A
+1.3.0 label decodes the same way, and 1.3.0 can decode labels written by
+1.4.0. Things that may affect callers:
+
+- **New labels say `"version": "1.4.0"`.** `wols` 1.3.0 still reads them, but
+  `validate_specimen` there reports an `INVALID_VERSION` warning, because it
+  expects exactly `1.3.0`. `@wemush/wols` 1.3.0 accepts any semver version.
+- **Versions**: `WOLS_VERSION` is `"1.4.0"`. `SUPPORTED_VERSIONS` is
+  `{"1.3.0", "1.4.0"}`, the versions that validate without a version
+  warning. `"1.3.1"` was dropped, because 1.3.1 was never released. Its
+  release candidate shipped as part of 1.4.0.
+- **Migration helpers**: `is_outdated("1.3.0")` is now `True`, and
+  `migrate()` or `can_migrate()` on a 1.3.0 label needs a registered
+  `1.3.0` to `1.4.0` handler. The wire format didn't change, so setting
+  `version` is enough:
+  `register_migration("1.3.0", "1.4.0", lambda d: {**d, "version": "1.4.0"})`.
+- **Numeric `strain.generation`**: An integer is converted to its decimal
+  string with a `WolsWarning`, on input and on decode. Only the string is
+  written. 1.3.0 wrote the integer unchanged.
 
 ## Upgrading from 1.2
 
