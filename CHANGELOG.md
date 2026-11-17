@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Signatures implement the WOLS `1.4.0-rc.1` scheme
+([open-standard#24](https://github.com/wemush/open-standard/pull/24)). That
+specification is a release candidate, so they must not be released until it
+is accepted.
+
 ### Added
 
 - `wols.crypto.RawKey(key)`: an explicit 32-byte raw key (`kdf=raw`). It
@@ -22,10 +27,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README: a "Migrating from 1.2" section (rollout order, recognizing and
   re-encrypting legacy labels, raw keys, and restoring strict ID checks),
   with its examples run as tests against real `wols` 1.2.0 output.
+- **Signatures** (`wols[crypto]`): `wols.crypto.sign_specimen`,
+  `sign_encrypted_url`, and `verify_specimen` (plus the form-specific
+  `verify_embedded` and `verify_encrypted_url`). Ed25519 (RFC 8032), with
+  `S ≥ L` rejected explicitly as well as by the backend. Embedded labels are
+  signed as the RFC 8785 (JCS) canonical form of the label as parsed, without
+  its top-level `signature`; encrypted URLs are signed byte for byte before
+  `&sig=`.
+- `VerificationResult` with a `SignatureStatus`, `kid`, and `reason`.
+  Verification never raises for a bad signature. Checks run in the
+  specification's order: the label text must be an I-JSON object, so it is
+  `malformed`, signed or not, if it isn't JSON, isn't an object, repeats a
+  member name at any depth (compared after unescaping), or holds a lone
+  surrogate, `NaN`, `Infinity`, or an overflowing number; then `unsigned`;
+  then the token and URL rules (`malformed`); then `unknown-kid`; then
+  `invalid` or `valid`.
+- `TrustedKey`, `TrustStore`, and `trust_store_from_key_set()` for the
+  optional `/.well-known/wols-keys.json` key set document. Keys are never read
+  from a label. An unusable entry (not Ed25519, not 32 bytes, or not a curve
+  point) raises `WolsTrustStoreError` when it is built, and verifies as
+  `invalid` if one reaches verification anyway.
+- Signing refuses label text that isn't I-JSON, and encrypted URLs with no
+  query, an empty query, or an existing `sig`.
+- `wols.crypto.jcs`: RFC 8785 canonicalization and a JSON parser that reports
+  duplicate member names. It handles where Python's `json` differs from
+  I-JSON: integers are rounded to doubles, and `NaN`, `Infinity`, overflowing
+  numbers, and lone surrogates are refused.
+- `WolsSignatureError`, raised only when a label can't be signed, and
+  `WolsTrustStoreError` (also a `ValueError`) for unusable trust store
+  entries.
+- `SUPPORTED_VERSIONS`: the label versions validation accepts without a
+  warning.
+- Conformance: vendored the vectors from open-standard commit `3b265ef`
+  (`1.4.0-rc.1`, merged to `main`), including `signatures.json` and the new
+  `decrypt-with-sig`, `decrypt-signed-url`, and `signed-label-valid` cases.
+  Every case passes. The decrypt cases now also check that `sig` is kept
+  unchanged.
 
 ### Changed
 
 - The base64-key `WolsWarning` message now also suggests `RawKey(key)`.
+- `validate_specimen` no longer warns `INVALID_VERSION` for `"version":
+  "1.3.1"` or `"1.4.0"`. Those versions change no wire format, and 1.4.0's
+  only addition, signatures, is now supported. Other versions still warn, and
+  new labels are still written as `1.3.0`.
 
 ## [1.3.0] - 2026-11-15
 

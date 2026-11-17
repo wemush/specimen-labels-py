@@ -7,7 +7,7 @@ from collections.abc import Callable
 from enum import Enum
 from typing import Any
 
-from wols.constants import ID_PREFIX, WOLS_CONTEXT, WOLS_VERSION
+from wols.constants import ID_PREFIX, SUPPORTED_VERSIONS, WOLS_CONTEXT, WOLS_VERSION
 from wols.generation import is_valid_generation
 from wols.models.enums import GrowthStage, SpecimenType
 from wols.models.specimen import (
@@ -305,13 +305,14 @@ def validate_specimen(
                     message=f"Expected string, got {type(data['version']).__name__}",
                 )
             )
-        elif data["version"] != WOLS_VERSION:
+        elif data["version"] not in SUPPORTED_VERSIONS:
             warnings.append(
                 ValidationError(
                     path="version",
                     code="INVALID_VERSION",
-                    message=f"Expected version '{WOLS_VERSION}',"
-                    f" got '{data['version']}'",
+                    message=f"Unrecognized version '{data['version']}'. This "
+                    f"library reads {', '.join(sorted(SUPPORTED_VERSIONS))} "
+                    f"and writes {WOLS_VERSION}",
                 )
             )
 
