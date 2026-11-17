@@ -15,6 +15,7 @@ from wols.core.validate import validate_specimen_id
 from wols.crypto._aead import field_aad, prepare_key, seal
 from wols.crypto.wire import DEFAULT_ITERATIONS, EncryptedLabel, Secret
 from wols.exceptions import WolsEncryptionError
+from wols.generation import with_string_generation
 
 if TYPE_CHECKING:
     from wols.models.specimen import Specimen
@@ -142,6 +143,9 @@ def encrypt_specimen_fields(
         if isinstance(specimen, Specimen)
         else copy.deepcopy(specimen)
     )
+    # WOLS 1.4.0: strain.generation is always written as a string.
+    if "strain" in data:
+        data["strain"] = with_string_generation(data["strain"], stacklevel=2)
 
     targets = [f for f in dict.fromkeys(fields) if data.get(f) is not None]
     if not targets:

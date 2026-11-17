@@ -8,6 +8,7 @@ from wols import (
     SpecimenRef,
     SpecimenType,
     WolsParseError,
+    WolsWarning,
     parse_compact_url,
     parse_specimen,
 )
@@ -37,12 +38,25 @@ class TestParseSpecimen:
             "id": "wemush:abc123def456ghijklmnopqr",
             "type": "CULTURE",
             "species": "Pleurotus ostreatus",
-            "strain": {"name": "Blue Oyster", "generation": 3}
+            "strain": {"name": "Blue Oyster", "generation": "3"}
         }"""
         specimen = parse_specimen(json_str)
         assert specimen.strain is not None
         assert specimen.strain.name == "Blue Oyster"
-        assert specimen.strain.generation == 3
+        assert specimen.strain.generation == "3"
+
+    def test_parse_numeric_generation(self) -> None:
+        """WOLS 1.4.0: a JSON integer generation parses as its decimal string."""
+        json_str = """{
+            "id": "wemush:abc123def456ghijklmnopqr",
+            "type": "CULTURE",
+            "species": "Pleurotus ostreatus",
+            "strain": {"name": "Blue Oyster", "generation": 1}
+        }"""
+        with pytest.warns(WolsWarning, match="strain.generation"):
+            specimen = parse_specimen(json_str)
+        assert specimen.strain is not None
+        assert specimen.strain.generation == "1"
 
     def test_invalid_json_raises(self) -> None:
         """Test that invalid JSON raises parse error."""

@@ -279,6 +279,33 @@ class TestValidateSpecimen:
             e.code == "INVALID_VALUE" and "generation" in e.path for e in result.errors
         )
 
+    def test_strain_numeric_generation_warns(self) -> None:
+        """WOLS 1.4.0: an integer generation is valid, with a NUMERIC_GENERATION warning."""
+        data = {
+            "id": "wemush:abc123def456ghijklmnopqr",
+            "type": "CULTURE",
+            "species": "Test",
+            "strain": {"name": "Blue Oyster", "generation": 1},
+        }
+        result = validate_specimen(data)
+        assert result.valid is True
+        assert any(
+            w.code == "NUMERIC_GENERATION" and w.path == "strain.generation"
+            for w in result.warnings
+        )
+
+    def test_strain_string_generation_does_not_warn(self) -> None:
+        """A string generation produces no NUMERIC_GENERATION warning."""
+        data = {
+            "id": "wemush:abc123def456ghijklmnopqr",
+            "type": "CULTURE",
+            "species": "Test",
+            "strain": {"name": "Blue Oyster", "generation": "1"},
+        }
+        result = validate_specimen(data)
+        assert result.valid is True
+        assert not any(w.code == "NUMERIC_GENERATION" for w in result.warnings)
+
     def test_strain_clonal_generation_invalid_type(self) -> None:
         """Test that non-integer clonalGeneration is an error."""
         data = {

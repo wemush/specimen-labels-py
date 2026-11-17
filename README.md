@@ -371,6 +371,10 @@ Other notes:
   when it is less than `clonalGeneration`. `generation` is the filial
   generation (`"F1"`, `"P"`, `"G2"`, `"3"`), `clonal_generation` counts
   culture-to-culture subcultures, and `transfer_depth` counts every transfer.
+- **`generation` is a string**: It's always written as a string. An `int`
+  (which 1.3.0 accepted and wrote as a JSON number) is converted to its
+  decimal string with a `WolsWarning`, both when you construct a `Strain`
+  and when you decode a label that carries one (WOLS 1.4.0).
 - **Compact URLs**: `parse_compact_url` accepts `wemush://`, `web+wemush://`,
   and `https://`. The compact URL output is unchanged in 1.3.0.
 
@@ -422,7 +426,8 @@ Other changes that may affect callers:
 - `validate_specimen` reports an error when `@context` or `@type` has the
   wrong value. A missing value is a warning.
 - `strain.generation` accepts filial notation strings (`"F1"`) as well as
-  integers.
+  integers. Since WOLS 1.4.0 an integer is converted to its decimal string
+  with a `WolsWarning`, and only the string is written.
 
 ## Migrating from 1.2
 

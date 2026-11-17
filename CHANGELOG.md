@@ -83,6 +83,26 @@ is accepted.
   "1.3.1"` or `"1.4.0"`. Those versions change no wire format, and 1.4.0's
   only addition, signatures, is now supported. Other versions still warn, and
   new labels are still written as `1.3.0`.
+- **`strain.generation` is always written as a string** (WOLS `1.4.0-rc.1`,
+  [open-standard#27](https://github.com/wemush/open-standard/pull/27)). wols
+  1.3.0 accepted an `int` and wrote it as a JSON integer (`"generation": 1`),
+  which the specification doesn't allow and `@wemush/wols` rejected. Now:
+  - `Strain(generation=1)` and `Strain.from_dict({"generation": 1})` store
+    `"1"` and emit a `WolsWarning`. Every generator (`to_json`,
+    `encrypt_specimen`, `encrypt_specimen_fields`) writes the string. A
+    negative, `bool`, or `float` generation is still rejected.
+  - Labels that already carry an integer keep decoding. `parse_specimen` and
+    `decrypt_specimen` read it as the decimal string (through `Strain`), and
+    `decrypt_specimen_fields` does the same in the dictionary it returns,
+    each with a `WolsWarning`. `decrypt_specimen_bytes` still returns the
+    exact plaintext.
+  - `validate_specimen` reports a `NUMERIC_GENERATION` warning on
+    `strain.generation` for an integer, instead of accepting it silently.
+  - Conformance: the `SHOULD` cases `generation-numeric`,
+    `decrypt-numeric-generation`, and `decrypt-fields-numeric-generation`
+    (open-standard `a44dd3a`) now pass. The `decrypt` check compares the
+    decoded plaintext with `expected.specimen`, as the vector README now
+    specifies.
 
 ## [1.3.0] - 2026-11-15
 
