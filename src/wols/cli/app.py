@@ -205,7 +205,7 @@ def validate(
         bool, typer.Option("--json", "-j", help="Output validation result as JSON")
     ] = False,
 ) -> None:
-    """Validate specimen JSON against WOLS v1.3.0 schema."""
+    """Validate specimen JSON against WOLS v1.4.0 schema."""
     # Determine input source
     file_path = input_file or input_opt
 

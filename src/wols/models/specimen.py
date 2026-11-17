@@ -164,7 +164,7 @@ class Specimen:
 
     Attributes:
         id: Unique identifier: ``wemush:`` followed by any non-empty suffix.
-        version: WOLS spec version (currently "1.3.0").
+        version: WOLS spec version (currently "1.4.0").
         type: Specimen type.
         species: Scientific species name.
         strain: Optional genetic info.

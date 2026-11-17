@@ -8,7 +8,7 @@ a random per-label salt, the passphrase normalized to Unicode NFC); a 32-byte
 text), selects ``kdf=raw``. Field-level ciphertexts are bound to the
 label's ``id`` and the field name by AES-GCM additional data.
 
-Signatures (WOLS v1.4.0, release candidate): :func:`sign_specimen` and
+Signatures (WOLS v1.4.0): :func:`sign_specimen` and
 :func:`sign_encrypted_url` add an Ed25519 signature token;
 :func:`verify_specimen` checks it against a caller-supplied trust store and
 returns a :class:`SignatureStatus`. Decoding and decryption never verify.
