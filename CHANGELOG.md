@@ -68,10 +68,12 @@ is accepted.
   entries.
 - `SUPPORTED_VERSIONS`: the label versions validation accepts without a
   warning.
-- Conformance: vendored the vectors from open-standard commit `a120c95`
+- Conformance: vendored the vectors from open-standard commit `a44dd3a`
   (`1.4.0-rc.1`, merged to `main`), including `signatures.json` (with its
   `loadKeySet` cases) and the new `decrypt-with-sig`, `decrypt-signed-url`,
-  and `signed-label-valid` cases. Every case passes. The decrypt cases now also check that `sig` is kept
+  and `signed-label-valid` cases. Every `MUST` case passes. The three
+  `SHOULD` cases from open-standard#27 (an integer `strain.generation`) are
+  not met yet and are reported as `xfail`. The decrypt cases now also check that `sig` is kept
   unchanged.
 
 ### Changed

@@ -10,14 +10,17 @@ The files in `vectors/` are copied unmodified from
 
 | Field | Value |
 | ----- | ----- |
-| Version | `1.4.0-rc.1` (release candidate, from [open-standard#22](https://github.com/wemush/open-standard/pull/22), [#24](https://github.com/wemush/open-standard/pull/24), and [#26](https://github.com/wemush/open-standard/pull/26), merged to `main`) |
-| Commit | `a120c95d6a8c9cfd822bd5e0a687f789351bde74` |
+| Version | `1.4.0-rc.1` (release candidate, from [open-standard#22](https://github.com/wemush/open-standard/pull/22), [#24](https://github.com/wemush/open-standard/pull/24), [#26](https://github.com/wemush/open-standard/pull/26), and [#27](https://github.com/wemush/open-standard/pull/27), merged to `main`) |
+| Commit | `a44dd3aee819f03a0c67c733821a83d65401683d` |
 | Path | `conformance/vectors/{embedded,primordia,generation,encrypted,field-encryption,signatures}.json` and `SHA256SUMS` |
 
 `1.4.0-rc.1` leaves the earlier cases unchanged and adds `signatures.json`,
 plus `decrypt-with-sig` and `decrypt-signed-url` in `encrypted.json` and
 `signed-label-valid` in `embedded.json`. `signatures.json` includes the
-`loadKeySet` cases from open-standard#26. Replace the commit with the `1.4.0`
+`loadKeySet` cases from open-standard#26. open-standard#27 adds three `SHOULD`
+cases for an integer `strain.generation` (`generation-numeric`,
+`decrypt-numeric-generation`, `decrypt-fields-numeric-generation`), which this
+library doesn't meet yet; they are reported as `xfail`. Replace the commit with the `1.4.0`
 tag once the specification is accepted.
 
 `vectors/SHA256SUMS` is copied from upstream too. Check the vendored files
