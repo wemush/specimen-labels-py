@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any, TypedDict
 
 from wols.constants import WOLS_CONTEXT, WOLS_VERSION
+from wols.generation import is_integer_generation, warn_numeric_generation
 from wols.models.enums import GrowthStage, SpecimenType
 
 
@@ -71,8 +72,11 @@ class Strain:
 
     Attributes:
         name: Strain name (e.g., "Blue Oyster").
-        generation: Filial (sexual) generation, e.g. "F1", "P", "G2", or a
-            number. It does not change when the same genetics is transferred.
+        generation: Filial (sexual) generation, e.g. "F1", "P", "G2", or
+            "3". It does not change when the same genetics is transferred.
+            Always a string once constructed: a non-negative ``int`` (which
+            wols 1.3.0 accepted and wrote) is converted to its decimal string
+            with a :class:`~wols.exceptions.WolsWarning` (WOLS 1.4.0).
         clonal_generation: Culture-to-culture subculture count. The original
             culture is 0. Expansion to grain or substrate does not increment it.
         transfer_depth: Total transfers of any kind from the original culture
@@ -110,6 +114,11 @@ class Strain:
                 "strain.generation must be a string or a non-negative integer, "
                 f"got {self.generation!r}"
             )
+        if is_integer_generation(self.generation):
+            # WOLS 1.4.0: generators MUST write a string; read an int as its
+            # decimal string. Frozen dataclass, so set it directly.
+            warn_numeric_generation(self.generation, stacklevel=3)
+            object.__setattr__(self, "generation", str(self.generation))
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dictionary."""

@@ -12,6 +12,7 @@ from wols import (
     Strain,
     ValidationError,
     ValidationResult,
+    WolsWarning,
 )
 
 
@@ -76,26 +77,53 @@ class TestStrain:
         """Test creating strain with all fields."""
         strain = Strain(
             name="Blue Oyster",
-            generation=3,
+            generation="3",
             clonal_generation=1,
             source="Wild clone",
         )
-        assert strain.generation == 3
+        assert strain.generation == "3"
         assert strain.clonal_generation == 1
 
     def test_to_dict(self) -> None:
         """Test to_dict conversion."""
-        strain = Strain(name="Blue Oyster", generation=3)
+        strain = Strain(name="Blue Oyster", generation="3")
         result = strain.to_dict()
         assert result["name"] == "Blue Oyster"
-        assert result["generation"] == 3
+        assert result["generation"] == "3"
 
     def test_from_dict(self) -> None:
         """Test creating strain from dict."""
-        data = {"name": "Blue Oyster", "generation": 3}
+        data = {"name": "Blue Oyster", "generation": "3"}
         strain = Strain.from_dict(data)
         assert strain.name == "Blue Oyster"
-        assert strain.generation == 3
+        assert strain.generation == "3"
+
+    def test_int_generation_becomes_string_with_warning(self) -> None:
+        """WOLS 1.4.0: an int generation is stored and written as a string."""
+        with pytest.warns(WolsWarning, match=r"strain\.generation is the number 3"):
+            strain = Strain(name="Blue Oyster", generation=3)
+        assert strain.generation == "3"
+        assert strain.to_dict()["generation"] == "3"
+
+    def test_from_dict_int_generation_with_warning(self) -> None:
+        """WOLS 1.4.0: a JSON integer generation is read as its decimal string."""
+        with pytest.warns(WolsWarning, match="strain.generation"):
+            strain = Strain.from_dict({"name": "Blue Oyster", "generation": 3})
+        assert strain.generation == "3"
+
+    def test_string_generation_does_not_warn(self) -> None:
+        """A string generation is used as given, without a warning."""
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", WolsWarning)
+            assert Strain(name="Blue Oyster", generation="F1").generation == "F1"
+
+    @pytest.mark.parametrize("value", [-1, True, 1.5])
+    def test_invalid_generation_rejected(self, value: object) -> None:
+        """Negative, bool and float generations are still rejected."""
+        with pytest.raises(ValueError, match=r"strain\.generation"):
+            Strain(name="Blue Oyster", generation=value)  # type: ignore[arg-type]
 
     def test_to_dict_with_clonal_generation(self) -> None:
         """Test to_dict includes clonalGeneration when set."""
@@ -120,14 +148,14 @@ class TestStrain:
         """Test to_dict with all fields set."""
         strain = Strain(
             name="Blue Oyster",
-            generation=3,
+            generation="3",
             clonal_generation=2,
             lineage="Parent A",
             source="Lab culture",
         )
         result = strain.to_dict()
         assert result["name"] == "Blue Oyster"
-        assert result["generation"] == 3
+        assert result["generation"] == "3"
         assert result["clonalGeneration"] == 2
         assert result["lineage"] == "Parent A"
         assert result["source"] == "Lab culture"
@@ -136,14 +164,14 @@ class TestStrain:
         """Test from_dict with all fields."""
         data = {
             "name": "Blue Oyster",
-            "generation": 3,
+            "generation": "3",
             "clonalGeneration": 2,
             "lineage": "Parent A",
             "source": "Lab culture",
         }
         strain = Strain.from_dict(data)
         assert strain.name == "Blue Oyster"
-        assert strain.generation == 3
+        assert strain.generation == "3"
         assert strain.clonal_generation == 2
         assert strain.lineage == "Parent A"
         assert strain.source == "Lab culture"

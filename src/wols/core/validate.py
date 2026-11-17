@@ -8,7 +8,11 @@ from enum import Enum
 from typing import Any
 
 from wols.constants import ID_PREFIX, SUPPORTED_VERSIONS, WOLS_CONTEXT, WOLS_VERSION
-from wols.generation import is_valid_generation
+from wols.generation import (
+    NUMERIC_GENERATION,
+    is_valid_generation,
+    numeric_generation_message,
+)
 from wols.models.enums import GrowthStage, SpecimenType
 from wols.models.specimen import (
     Specimen,
@@ -455,6 +459,15 @@ def _validate_strain_counters(
                     path="strain.generation",
                     code="INVALID_VALUE",
                     message="generation must be non-negative",
+                )
+            )
+        else:
+            # WOLS 1.4.0: a JSON integer is read as its decimal string.
+            warnings.append(
+                ValidationError(
+                    path="strain.generation",
+                    code=NUMERIC_GENERATION,
+                    message=numeric_generation_message(generation),
                 )
             )
 
