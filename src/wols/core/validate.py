@@ -132,7 +132,7 @@ def validate_specimen(
     strict: bool = False,
     id_mode: IdValidationMode = IdValidationMode.ANY,
 ) -> ValidationResult:
-    """Validate a specimen against the WOLS v1.3.0 schema.
+    """Validate a specimen against the WOLS v1.4.0 schema.
 
     Fields replaced by field-level encryption objects
     (``{"encrypted": true, ...}``) are accepted without inspecting their

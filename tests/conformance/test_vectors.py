@@ -61,7 +61,7 @@ VECTOR_FILES = (
     "signatures",
 )
 # The signature scheme is WOLS 1.4.0; the other files target the 1.3.0 wire
-# format, which 1.3.1 and 1.4.0 leave unchanged.
+# format, which 1.4.0 leaves unchanged.
 VECTOR_VERSIONS = {"signatures": "1.4.0"}
 
 _SIGNATURES = json.loads((VECTORS_DIR / "signatures.json").read_text(encoding="utf-8"))
