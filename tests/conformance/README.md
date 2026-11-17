@@ -10,8 +10,8 @@ The files in `vectors/` are copied unmodified from
 
 | Field | Value |
 | ----- | ----- |
-| Version | `1.4.0-rc.1` (release candidate, [open-standard#24](https://github.com/wemush/open-standard/pull/24), stacked on `1.3.1-rc.1`) |
-| Commit | `8e02ecaa9a0552d444b14d061dc5998b275f9188` |
+| Version | `1.4.0-rc.1` (release candidate, from [open-standard#22](https://github.com/wemush/open-standard/pull/22) and [#24](https://github.com/wemush/open-standard/pull/24), merged to `main`) |
+| Commit | `3b265ef06fa8139716bb3376af7339bf6ad549ac` |
 | Path | `conformance/vectors/{embedded,primordia,generation,encrypted,field-encryption,signatures}.json` and `SHA256SUMS` |
 
 `1.4.0-rc.1` leaves the earlier cases unchanged and adds `signatures.json`,

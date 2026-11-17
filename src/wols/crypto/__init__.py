@@ -4,7 +4,8 @@ Optional module - requires: pip install wols[crypto]
 
 Secrets: a ``str`` passphrase selects ``kdf=pbkdf2`` (PBKDF2-HMAC-SHA256 with
 a random per-label salt, the passphrase normalized to Unicode NFC); a 32-byte
-``bytes`` key selects ``kdf=raw``. Field-level ciphertexts are bound to the
+``bytes`` key, or a :class:`RawKey` (which also accepts base64 or base64url
+text), selects ``kdf=raw``. Field-level ciphertexts are bound to the
 label's ``id`` and the field name by AES-GCM additional data.
 
 Signatures (WOLS v1.4.0, release candidate): :func:`sign_specimen` and
@@ -41,6 +42,7 @@ from wols.crypto.wire import (
     MIN_DECODE_ITERATIONS,
     EncryptedLabel,
     EncryptedPayload,
+    RawKey,
     Secret,
     b64url_decode,
     b64url_encode,
@@ -56,6 +58,7 @@ __all__ = [
     "MIN_DECODE_ITERATIONS",
     "EncryptedLabel",
     "EncryptedPayload",
+    "RawKey",
     "Secret",
     "SignatureStatus",
     "TrustStore",

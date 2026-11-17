@@ -34,6 +34,7 @@ def encrypt_specimen(
     secret: Secret,
     *,
     iterations: int = DEFAULT_ITERATIONS,
+    strict_passphrase: bool = False,
 ) -> str:
     """Encrypt a specimen into an encrypted-format URL.
 
@@ -45,11 +46,15 @@ def encrypt_specimen(
         specimen: Specimen to encrypt. Its ID suffix appears in the URL in
             cleartext.
         secret: A passphrase (``str``), which selects ``kdf=pbkdf2``, or a
-            32-byte key (``bytes``), which selects ``kdf=raw``.
+            32-byte key (``bytes`` or :class:`~wols.crypto.RawKey`), which
+            selects ``kdf=raw``.
         iterations: PBKDF2 iterations for a passphrase. Defaults to 600,000
             (OWASP guidance). Allowed range is 100,000 (the spec floor, for
             faster scans at the cost of weaker offline-guessing resistance)
             to 10,000,000. Ignored for a raw key.
+        strict_passphrase: If true, a ``str`` secret that looks like a
+            base64-encoded 32-byte key raises ``INVALID_KEY`` instead of
+            emitting a ``WolsWarning``. Defaults to false.
 
     Returns:
         ``wemush://v1/encrypted/{id}?e=...&iv=...&kdf=...[&salt=...&i=...]``
@@ -61,6 +66,7 @@ def encrypt_specimen(
     Example:
         >>> url = encrypt_specimen(specimen, "correct horse battery staple")
         >>> url = encrypt_specimen(specimen, os.urandom(32))
+        >>> url = encrypt_specimen(specimen, RawKey(key_b64))
     """
     prefix = f"{ID_PREFIX}:"
     if not validate_specimen_id(specimen.id):
@@ -70,7 +76,7 @@ def encrypt_specimen(
             code="INVALID_ID",
         )
 
-    material = prepare_key(secret, iterations)
+    material = prepare_key(secret, iterations, strict_passphrase=strict_passphrase)
     payload = seal(_compact_json(specimen.to_dict()), material)
     return EncryptedLabel(id=specimen.id[len(prefix) :], payload=payload).to_url()
 
@@ -81,6 +87,7 @@ def encrypt_specimen_fields(
     fields: list[str],
     *,
     iterations: int = DEFAULT_ITERATIONS,
+    strict_passphrase: bool = False,
 ) -> dict[str, Any]:
     """Encrypt individual fields of an embedded label.
 
@@ -102,12 +109,14 @@ def encrypt_specimen_fields(
 
     Args:
         specimen: Specimen or JSON-LD dictionary.
-        secret: A passphrase (``str``) or a 32-byte key (``bytes``).
+        secret: A passphrase (``str``) or a 32-byte key (``bytes`` or
+            :class:`~wols.crypto.RawKey`).
         fields: Field names to encrypt (e.g. ``["strain", "custom"]``).
             Fields that are absent or ``None`` are left as they are.
         iterations: PBKDF2 iterations for a passphrase. Defaults to 600,000
             (OWASP guidance). Allowed range is 100,000 (the spec floor, for
             faster scans) to 10,000,000.
+        strict_passphrase: As for :func:`encrypt_specimen`.
 
     Returns:
         A new JSON-LD dictionary with the fields encrypted. Use
@@ -146,7 +155,7 @@ def encrypt_specimen_fields(
             code="INVALID_ID",
         )
 
-    material = prepare_key(secret, iterations)
+    material = prepare_key(secret, iterations, strict_passphrase=strict_passphrase)
     for field in targets:
         payload = seal(_compact_json(data[field]), material, field_aad(label_id, field))
         data[field] = payload.to_field_object()

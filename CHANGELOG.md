@@ -7,13 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Implements the WOLS `1.4.0-rc.1` signature scheme
-([open-standard#24](https://github.com/wemush/open-standard/pull/24)). The
-specification is a release candidate, so this must not be released until it
+Signatures implement the WOLS `1.4.0-rc.1` scheme
+([open-standard#24](https://github.com/wemush/open-standard/pull/24)). That
+specification is a release candidate, so they must not be released until it
 is accepted.
 
 ### Added
 
+- `wols.crypto.RawKey(key)`: an explicit 32-byte raw key (`kdf=raw`). It
+  takes 32 bytes, or standard base64 or base64url text (padding optional),
+  and raises `WolsEncryptionError` (`INVALID_KEY`) for anything else. Every
+  function that takes a secret accepts it, including with
+  `allow_legacy=True`, and it behaves exactly like the 32 key bytes. Its
+  `repr` hides the key. `Secret` is now `str | bytes | RawKey`.
+- `strict_passphrase=False` keyword on `encrypt_specimen()` and
+  `encrypt_specimen_fields()`. When true, a `str` secret that looks like a
+  base64-encoded 32-byte key raises `INVALID_KEY` instead of emitting a
+  `WolsWarning`. The default is unchanged.
+- README: a "Migrating from 1.2" section (rollout order, recognizing and
+  re-encrypting legacy labels, raw keys, and restoring strict ID checks),
+  with its examples run as tests against real `wols` 1.2.0 output.
 - **Signatures** (`wols[crypto]`): `wols.crypto.sign_specimen`,
   `sign_encrypted_url`, and `verify_specimen` (plus the form-specific
   `verify_embedded` and `verify_encrypted_url`). Ed25519 (RFC 8032), with
@@ -45,14 +58,15 @@ is accepted.
   entries.
 - `SUPPORTED_VERSIONS`: the label versions validation accepts without a
   warning.
-- Conformance: vendored the vectors from open-standard commit `8e02eca`
-  (`1.4.0-rc.1`), including `signatures.json` and the new
+- Conformance: vendored the vectors from open-standard commit `3b265ef`
+  (`1.4.0-rc.1`, merged to `main`), including `signatures.json` and the new
   `decrypt-with-sig`, `decrypt-signed-url`, and `signed-label-valid` cases.
   Every case passes. The decrypt cases now also check that `sig` is kept
   unchanged.
 
 ### Changed
 
+- The base64-key `WolsWarning` message now also suggests `RawKey(key)`.
 - `validate_specimen` no longer warns `INVALID_VERSION` for `"version":
   "1.3.1"` or `"1.4.0"`. Those versions change no wire format, and 1.4.0's
   only addition, signatures, is now supported. Other versions still warn, and
