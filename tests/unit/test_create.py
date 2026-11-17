@@ -32,7 +32,7 @@ class TestCreateSpecimen:
 
     def test_full_creation(self) -> None:
         """Test creating specimen with all fields."""
-        strain = Strain(name="Blue Oyster", generation=3)
+        strain = Strain(name="Blue Oyster", generation="3")
         specimen = create_specimen(
             input_type=SpecimenType.SUBSTRATE,
             species="Pleurotus ostreatus",
@@ -223,7 +223,7 @@ class TestCreateSpecimen:
 
     def test_strain_object_passthrough(self) -> None:
         """Test that Strain object is used directly without conversion."""
-        strain = Strain(name="King Blue", generation=2)
+        strain = Strain(name="King Blue", generation="2")
         specimen = create_specimen(
             input_type=SpecimenType.SPAWN,
             species="Pleurotus ostreatus",
@@ -232,4 +232,4 @@ class TestCreateSpecimen:
         assert specimen.strain is not None
         assert specimen.strain is strain
         assert specimen.strain.name == "King Blue"
-        assert specimen.strain.generation == 2
+        assert specimen.strain.generation == "2"

@@ -26,6 +26,7 @@ from wols.crypto.wire import (
     parse_encrypted_url,
 )
 from wols.exceptions import WolsEncryptionError
+from wols.generation import with_string_generation
 from wols.models.specimen import is_encrypted_field
 
 if TYPE_CHECKING:
@@ -241,6 +242,9 @@ def decrypt_specimen_fields(
             continue
 
         result[field] = _parse_plaintext_json(plaintext, f"Field '{field}'")
+    # WOLS 1.4.0: read an integer strain.generation as its decimal string.
+    if "strain" in result:
+        result["strain"] = with_string_generation(result["strain"], stacklevel=2)
     return result
 
 

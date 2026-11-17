@@ -49,6 +49,7 @@ from wols.exceptions import (
     WolsSignatureError,
     WolsTrustStoreError,
 )
+from wols.generation import with_string_generation
 
 VECTORS_DIR = Path(__file__).parent / "vectors"
 VECTOR_FILES = (
@@ -151,7 +152,12 @@ def check_decrypt(case: dict[str, Any]) -> None:
     if expected["success"]:
         plaintext = decrypt_specimen_bytes(url, secret)
         assert plaintext == expected["plaintext"].encode("utf-8")
-        assert json.loads(plaintext) == expected["specimen"]
+        # `specimen` is the decoded label: a numeric strain.generation in the
+        # plaintext is read as its decimal string (WOLS 1.4.0).
+        decoded = json.loads(plaintext)
+        if "strain" in decoded:
+            decoded["strain"] = with_string_generation(decoded["strain"], stacklevel=1)
+        assert decoded == expected["specimen"]
         assert decrypt_specimen(url, secret) == Specimen.from_dict(expected["specimen"])
         if "sig" in expected:
             # Decoding keeps `sig` unchanged and never verifies it.

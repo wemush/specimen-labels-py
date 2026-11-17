@@ -6,7 +6,11 @@ Handles normalization and validation of generation strings.
 from __future__ import annotations
 
 import re
+import warnings
 from enum import Enum
+from typing import Any, TypeGuard
+
+from wols.exceptions import WolsWarning
 
 # Pattern for parsing generation strings
 # Accepts: P, P1, F1, F2, G1, G2, or plain numbers (1, 2, 3)
@@ -106,3 +110,51 @@ def is_valid_generation(generation: str) -> bool:
     """
     trimmed = generation.strip().upper()
     return bool(GENERATION_PARSE_PATTERN.match(trimmed))
+
+
+# =============================================================================
+# Numeric strain.generation (WOLS 1.4.0)
+# =============================================================================
+
+NUMERIC_GENERATION = "NUMERIC_GENERATION"
+"""Warning code for a ``strain.generation`` given as a JSON integer (WOLS 1.4.0)."""
+
+
+def is_integer_generation(value: object) -> TypeGuard[int]:
+    """Return True for a non-negative ``int`` generation (``bool`` is rejected).
+
+    ``strain.generation`` is a string. wols 1.3.0 accepted and wrote a JSON
+    integer, so decoders read one as its decimal string (WOLS 1.4.0).
+    """
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def numeric_generation_message(value: int) -> str:
+    """Describe a numeric ``strain.generation`` read as its decimal string."""
+    return (
+        f"strain.generation is the number {value}; read as the string {str(value)!r}. "
+        f"Write it as a string: {str(value)!r}"
+    )
+
+
+def warn_numeric_generation(value: int, *, stacklevel: int) -> None:
+    """Emit a :class:`~wols.exceptions.WolsWarning` for a numeric generation."""
+    warnings.warn(
+        numeric_generation_message(value), WolsWarning, stacklevel=stacklevel + 1
+    )
+
+
+def with_string_generation(strain: Any, *, stacklevel: int) -> Any:
+    """Return ``strain`` with an integer ``generation`` as its decimal string.
+
+    ``strain`` is a JSON-LD strain object (a ``dict``). Anything else, and a
+    strain whose generation is not a non-negative integer, is returned
+    unchanged. Converting warns. The input is never mutated.
+    """
+    if not isinstance(strain, dict):
+        return strain
+    generation = strain.get("generation")
+    if not is_integer_generation(generation):
+        return strain
+    warn_numeric_generation(generation, stacklevel=stacklevel + 1)
+    return {**strain, "generation": str(generation)}

@@ -20,8 +20,8 @@ plus `decrypt-with-sig` and `decrypt-signed-url` in `encrypted.json` and
 `loadKeySet` cases from open-standard#26. open-standard#27 adds three `SHOULD`
 cases for an integer `strain.generation` (`generation-numeric`,
 `decrypt-numeric-generation`, `decrypt-fields-numeric-generation`), which this
-library doesn't meet yet; they are reported as `xfail`. Replace the commit with the `1.4.0`
-tag once the specification is accepted.
+library passes. Replace the commit with the `1.4.0` tag once the specification is
+accepted.
 
 `vectors/SHA256SUMS` is copied from upstream too. Check the vendored files
 with:
