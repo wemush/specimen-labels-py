@@ -18,7 +18,7 @@ The official Python implementation of the WeMush Open Labeling Standard (WOLS) v
   encrypted URLs (WOLS 1.4.0 release candidate)
 - **CLI**: Command-line interface for all operations
 - **Type Safe**: Full type annotations with PEP 561 support
-- **Interop**: CI round-trips encrypted labels (URL `kdf=pbkdf2`/`kdf=raw` and field-level) with the TypeScript [`@wemush/wols`](https://github.com/wemush/specimen-labels-js) library in both directions, against its npm release and its `main` branch (see [`interop/`](interop/))
+- **Interop**: CI round-trips encrypted labels (URL `kdf=pbkdf2`/`kdf=raw` and field-level) with the TypeScript [`@wemush/wols`](https://github.com/wemush/specimen-labels-js) library in both directions, against its npm release and its `main` branch (see [`tests/interop/`](tests/interop/))
 
 ## Installation
 
@@ -570,6 +570,16 @@ s = create_specimen(type=SpecimenType.CULTURE, species='Test')
 print('Success:', s.id)
 "
 ```
+
+## Cross-library round-trips
+
+Labels made by this library decrypt in the TypeScript
+[`@wemush/wols`](https://github.com/wemush/specimen-labels-js) package, and
+labels made by `@wemush/wols` decrypt here. CI tests this in both directions,
+against the published `@wemush/wols` release and its `main` branch, for
+encrypted URLs (`kdf=pbkdf2` and `kdf=raw`) and field-level encryption, with
+hostile IDs, non-NFC passphrases and the optional `sig` parameter. See
+[`tests/interop/README.md`](tests/interop/README.md).
 
 ## Documentation
 
