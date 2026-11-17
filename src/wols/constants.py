@@ -11,6 +11,11 @@ from typing import Literal
 # WOLS specification version
 WOLS_VERSION = "1.3.0"
 
+# Label versions this library reads without a version warning. 1.3.1 and
+# 1.4.0 (release candidates) change no wire format: 1.4.0 adds signatures,
+# which this library verifies. New labels are still written as WOLS_VERSION.
+SUPPORTED_VERSIONS: frozenset[str] = frozenset({"1.3.0", "1.3.1", "1.4.0"})
+
 # JSON-LD context URL
 WOLS_CONTEXT = "https://wemush.com/wols/v1"
 
