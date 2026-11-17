@@ -419,7 +419,12 @@ class TestKeySet:
             {"keys": [{"kid": "a", "alg": "Ed25519"}]},
             {"keys": [{"kid": "a", "alg": "Ed25519", "publicKey": "A" * 42}]},
             {"keys": [{"kid": "a", "alg": "Ed25519", "publicKey": "A" * 42 + "B"}]},
-            {"keys": [{"kid": "a", "alg": "Ed448", "publicKey": "A" * 43}]},
+            {"keys": [{"kid": "a", "publicKey": "A" * 43}]},
+            {"keys": [{"kid": "a", "alg": None, "publicKey": "A" * 43}]},
+            {"keys": [{"kid": "a", "alg": "Ed25519", "publicKey": "A" * 43 + "="}]},
+            {"keys": [{"kid": 7, "alg": "Ed25519", "publicKey": "A" * 43}]},
+            [],
+            None,
             {
                 "keys": [
                     {
@@ -441,6 +446,64 @@ class TestKeySet:
     def test_rejects_malformed_documents(self, doc: object) -> None:
         with pytest.raises(WolsTrustStoreError):
             trust_store_from_key_set(doc)  # type: ignore[arg-type]
+
+    def test_skips_unsupported_algorithms(self) -> None:
+        public = b64url_encode(_public(SEED))
+        future = {"kid": "future-1", "alg": "ML-DSA-44", "publicKey": "A" * 1750}
+        sloppy = {"alg": "Ed448"}  # a skipped entry's other members aren't checked
+        lowercase = {"kid": "lower", "alg": "ed25519", "publicKey": public}
+        doc = {
+            "keys": [
+                future,
+                {"kid": KID, "alg": "Ed25519", "publicKey": public},
+                sloppy,
+                lowercase,
+            ]
+        }
+        skipped: list[object] = []
+        store = trust_store_from_key_set(doc, on_skip=skipped.append)
+        assert list(store) == [KID]
+        assert skipped == [future, sloppy, lowercase]
+        assert trust_store_from_key_set(json.dumps(doc)) == store
+        signed = sign_specimen(LABEL_TEXT, SEED, KID)
+        assert _status(signed, store) is SignatureStatus.VALID
+
+    def test_skipped_kid_is_unknown(self) -> None:
+        public = b64url_encode(_public(SEED))
+        doc = {
+            "keys": [
+                {"kid": KID, "alg": "ML-DSA-44", "publicKey": public},
+            ]
+        }
+        store = trust_store_from_key_set(doc)
+        assert store == {}
+        signed = sign_specimen(LABEL_TEXT, SEED, KID)
+        assert _status(signed, store) is SignatureStatus.UNKNOWN_KID
+
+    def test_skipped_entry_may_share_a_kid(self) -> None:
+        public = b64url_encode(_public(SEED))
+        doc = {
+            "keys": [
+                {"kid": KID, "alg": "ML-DSA-44", "publicKey": "A" * 1750},
+                {"kid": KID, "alg": "Ed25519", "publicKey": public},
+            ]
+        }
+        assert list(trust_store_from_key_set(doc)) == [KID]
+
+    def test_damaged_ed25519_entry_fails_the_whole_document(self) -> None:
+        public = b64url_encode(_public(SEED))
+        doc = {
+            "keys": [
+                {"kid": KID, "alg": "Ed25519", "publicKey": public},
+                {"kid": "other", "alg": "Ed25519", "publicKey": public[:-1]},
+            ]
+        }
+        with pytest.raises(WolsTrustStoreError, match="other"):
+            trust_store_from_key_set(doc)
+
+    def test_direct_construction_still_rejects_other_algorithms(self) -> None:
+        with pytest.raises(WolsTrustStoreError):
+            TrustedKey(_public(SEED), alg="Ed448")
 
 
 class TestVersion:

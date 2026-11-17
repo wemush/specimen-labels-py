@@ -10,13 +10,17 @@ The files in `vectors/` are copied unmodified from
 
 | Field | Value |
 | ----- | ----- |
-| Version | `1.4.0-rc.1` (release candidate, from [open-standard#22](https://github.com/wemush/open-standard/pull/22) and [#24](https://github.com/wemush/open-standard/pull/24), merged to `main`) |
-| Commit | `3b265ef06fa8139716bb3376af7339bf6ad549ac` |
+| Version | `1.4.0-rc.1` (release candidate, from [open-standard#22](https://github.com/wemush/open-standard/pull/22), [#24](https://github.com/wemush/open-standard/pull/24), [#26](https://github.com/wemush/open-standard/pull/26), and [#27](https://github.com/wemush/open-standard/pull/27), merged to `main`) |
+| Commit | `a44dd3aee819f03a0c67c733821a83d65401683d` |
 | Path | `conformance/vectors/{embedded,primordia,generation,encrypted,field-encryption,signatures}.json` and `SHA256SUMS` |
 
 `1.4.0-rc.1` leaves the earlier cases unchanged and adds `signatures.json`,
 plus `decrypt-with-sig` and `decrypt-signed-url` in `encrypted.json` and
-`signed-label-valid` in `embedded.json`. Replace the commit with the `1.4.0`
+`signed-label-valid` in `embedded.json`. `signatures.json` includes the
+`loadKeySet` cases from open-standard#26. open-standard#27 adds three `SHOULD`
+cases for an integer `strain.generation` (`generation-numeric`,
+`decrypt-numeric-generation`, `decrypt-fields-numeric-generation`), which this
+library doesn't meet yet; they are reported as `xfail`. Replace the commit with the `1.4.0`
 tag once the specification is accepted.
 
 `vectors/SHA256SUMS` is copied from upstream too. Check the vendored files
@@ -37,6 +41,7 @@ cd tests/conformance/vectors && shasum -a 256 -c SHA256SUMS
 | `decryptFields` | `wols.crypto.decrypt_specimen_fields(specimen, secret)`, compared with `expected.specimen`. Failure reasons map to codes as for `decrypt`. |
 | `sign` | `wols.crypto.sign_specimen(label, seed, kid)` or `sign_encrypted_url(url, seed, kid)`, with the seed from `testKeys`. The token must match exactly. `signingInput` is checked with `wols.crypto.jcs.canonicalize`. A `refused` case must raise `WolsSignatureError`. |
 | `verify` | `wols.crypto.verify_specimen(label_or_url, trust_store)`, and also `verify_embedded` or `verify_encrypted_url`, against `input.trustStore` or else the file's `trustStore`. The status must match; for `valid`, so must the kid. For a `configError` case, building the `TrustedKey` must raise `WolsTrustStoreError`, and verifying with the unchecked entry must give `invalid`. |
+| `loadKeySet` | `wols.crypto.trust_store_from_key_set(document, on_skip=...)`, with the document both parsed and as JSON text. A `configError` case must raise `WolsTrustStoreError`. Otherwise the sorted kids must equal `kids`, `on_skip` must be called `skipped` times, and `verify_specimen(label, store)` must give `status` (and `kid` for `valid`). |
 
 For `decrypt` cases with `sig`, the test also checks that
 `parse_encrypted_url(url).signature` keeps the token unchanged and that

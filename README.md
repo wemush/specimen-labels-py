@@ -290,10 +290,32 @@ Verification makes no network requests.
 
 `TrustedKey` checks its key when you build it: an algorithm other than
 `Ed25519`, a key that isn't 32 bytes, or bytes that aren't a point on the curve
-raise `WolsTrustStoreError` (a `ValueError`). `trust_store_from_key_set()`
-rejects the whole document if any entry is unusable. If an unusable entry
-reaches verification anyway (for example, a plain dict in place of a
-`TrustedKey`), that kid verifies as `INVALID`.
+raise `WolsTrustStoreError` (a `ValueError`). If an unusable entry reaches
+verification anyway (for example, a plain dict in place of a `TrustedKey`),
+that kid verifies as `INVALID`.
+
+`trust_store_from_key_set()` is forward-compatible. It skips an entry whose
+`alg` isn't `Ed25519` (compared exactly) without checking its other members,
+so an issuer can add keys for a later algorithm without breaking your
+verifier; a label signed under a skipped kid verifies as `UNKNOWN_KID`. Pass
+`on_skip` to see what was skipped. Anything else wrong rejects the whole
+document with `WolsTrustStoreError`, because a damaged entry for a supported
+algorithm points to corruption or tampering: an `Ed25519` entry with a bad kid
+or a key that isn't canonical base64url of 32 bytes on the curve, two
+`Ed25519` entries with the same kid, or a document that isn't an object with
+a `keys` array of objects with a string `alg`.
+
+```python
+import logging
+
+from wols.crypto import trust_store_from_key_set
+
+log = logging.getLogger(__name__)
+trust_store = trust_store_from_key_set(
+    fetched_text,  # the key set document you fetched
+    on_skip=lambda entry: log.info("skipped key %s (%s)", entry.get("kid"), entry["alg"]),
+)
+```
 
 Signing refuses (`WolsSignatureError`) label text that isn't an I-JSON
 object, a URL with no query or an empty one, and a URL that already has `sig`.
