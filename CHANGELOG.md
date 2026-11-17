@@ -47,6 +47,16 @@ is accepted.
   from a label. An unusable entry (not Ed25519, not 32 bytes, or not a curve
   point) raises `WolsTrustStoreError` when it is built, and verifies as
   `invalid` if one reaches verification anyway.
+- `trust_store_from_key_set()` follows the key set rules from
+  [open-standard#26](https://github.com/wemush/open-standard/pull/26): an
+  entry whose `alg` isn't `Ed25519` (compared exactly) is skipped without
+  checking its other members, so an issuer can publish keys for a future
+  algorithm without breaking this verifier. The new `on_skip` keyword is
+  called with each skipped entry. A damaged `Ed25519` entry (bad kid, or a
+  key that isn't canonical base64url of 32 bytes on the curve), a duplicate
+  kid among `Ed25519` entries, and a document that isn't an object with a
+  `keys` array, or holds an entry without a string `alg`, still reject the
+  whole document. `TrustedKey` still rejects other algorithms.
 - Signing refuses label text that isn't I-JSON, and encrypted URLs with no
   query, an empty query, or an existing `sig`.
 - `wols.crypto.jcs`: RFC 8785 canonicalization and a JSON parser that reports
@@ -58,10 +68,12 @@ is accepted.
   entries.
 - `SUPPORTED_VERSIONS`: the label versions validation accepts without a
   warning.
-- Conformance: vendored the vectors from open-standard commit `3b265ef`
-  (`1.4.0-rc.1`, merged to `main`), including `signatures.json` and the new
-  `decrypt-with-sig`, `decrypt-signed-url`, and `signed-label-valid` cases.
-  Every case passes. The decrypt cases now also check that `sig` is kept
+- Conformance: vendored the vectors from open-standard commit `a44dd3a`
+  (`1.4.0-rc.1`, merged to `main`), including `signatures.json` (with its
+  `loadKeySet` cases) and the new `decrypt-with-sig`, `decrypt-signed-url`,
+  and `signed-label-valid` cases. Every `MUST` case passes. The three
+  `SHOULD` cases from open-standard#27 (an integer `strain.generation`) are
+  not met yet and are reported as `xfail`. The decrypt cases now also check that `sig` is kept
   unchanged.
 
 ### Changed
