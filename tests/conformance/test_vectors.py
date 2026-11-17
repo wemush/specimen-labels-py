@@ -38,6 +38,7 @@ from wols.crypto import (
     parse_encrypted_url,
     sign_encrypted_url,
     sign_specimen,
+    trust_store_from_key_set,
     verify_embedded,
     verify_encrypted_url,
     verify_specimen,
@@ -270,6 +271,27 @@ def check_verify(case: dict[str, Any]) -> None:
         assert result.reason
 
 
+def check_load_key_set(case: dict[str, Any]) -> None:
+    inp = case["input"]
+    expected = case["expected"]
+    # The document as parsed JSON and as text: both must load (or fail) alike.
+    documents = [inp["keySet"], json.dumps(inp["keySet"])]
+    if expected.get("configError"):
+        for document in documents:
+            with pytest.raises(WolsTrustStoreError):
+                trust_store_from_key_set(document)
+        return
+    for document in documents:
+        skipped: list[Any] = []
+        store = trust_store_from_key_set(document, on_skip=skipped.append)
+        assert sorted(store) == expected["kids"]
+        assert len(skipped) == expected["skipped"]
+        result = verify_specimen(inp["label"], store)
+        assert result.status == expected["status"], result
+        if result.status is SignatureStatus.VALID:
+            assert result.kid == expected["kid"]
+
+
 def _error_code(reason: str) -> str:
     """The vector's reason is a suggested category; this library uses the
     same names as error codes (``id-mismatch`` becomes ``ID_MISMATCH``)."""
@@ -284,6 +306,7 @@ CHECKS: dict[str, Callable[[dict[str, Any]], None]] = {
     "decryptFields": check_decrypt_fields,
     "sign": check_sign,
     "verify": check_verify,
+    "loadKeySet": check_load_key_set,
 }
 
 

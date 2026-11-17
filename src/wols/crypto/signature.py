@@ -27,7 +27,7 @@ from __future__ import annotations
 import base64
 import binascii
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
@@ -695,7 +695,11 @@ def verify_specimen(
 # ---------------------------------------------------------------------------
 
 
-def trust_store_from_key_set(document: str | bytes | Mapping[str, Any]) -> TrustStore:
+def trust_store_from_key_set(
+    document: str | bytes | Mapping[str, Any],
+    *,
+    on_skip: Callable[[Mapping[str, Any]], None] | None = None,
+) -> TrustStore:
     """Build a trust store from a WOLS key set document.
 
     The document has the shape an issuer MAY publish at
@@ -711,23 +715,36 @@ def trust_store_from_key_set(document: str | bytes | Mapping[str, Any]) -> Trust
             ]
         }
 
+    An entry whose ``alg`` isn't ``"Ed25519"`` (compared exactly, so
+    ``"ed25519"`` too) is skipped without checking its other members. That
+    keeps the format forward-compatible: an issuer can add keys for a later
+    algorithm without breaking this verifier. A label signed under a skipped
+    entry's kid verifies as ``UNKNOWN_KID``. Members the specification
+    doesn't define are ignored.
+
     This function doesn't fetch anything. Choose the host independently of
     any label, fetch the document over HTTPS yourself, and pass it here.
     Merge stores from several issuers only if their kids don't collide.
 
     Args:
         document: The key set document, as text or parsed JSON.
+        on_skip: Called with each entry skipped for an unsupported
+            algorithm, in document order, for example to log it.
 
     Returns:
-        A trust store with one entry per key.
+        A trust store with one entry per Ed25519 key.
 
     Raises:
-        WolsTrustStoreError: (a ``ValueError``) If the document is
-            malformed, a kid is invalid or appears twice, or any entry is
-            unusable: an algorithm other than Ed25519, or a public key that
-            isn't 32 bytes of canonical base64url encoding a curve point.
-            Unusable entries are configuration errors, so the whole document
-            is rejected rather than silently trimmed.
+        WolsTrustStoreError: (a ``ValueError``) If the document isn't an
+            object with a ``keys`` array, an entry isn't an object with a
+            string ``alg``, two Ed25519 entries share a kid, or an Ed25519
+            entry is unusable: an invalid kid, or a ``publicKey`` that isn't
+            the canonical unpadded base64url of 32 bytes encoding a curve
+            point. A damaged Ed25519 entry signals corruption or tampering,
+            so the whole document is rejected rather than the key dropped.
+
+    Example:
+        >>> store = trust_store_from_key_set(fetched_text, on_skip=log.info)
     """
     import json
 
@@ -743,16 +760,20 @@ def trust_store_from_key_set(document: str | bytes | Mapping[str, Any]) -> Trust
             message="key set document must be an object with a 'keys' array"
         )
     store: dict[str, TrustedKey] = {}
-    for entry in keys:
+    for index, entry in enumerate(keys):
         if not isinstance(entry, Mapping):
-            raise WolsTrustStoreError(message="each key must be an object")
-        kid, alg, encoded = entry.get("kid"), entry.get("alg"), entry.get("publicKey")
-        if not isinstance(kid, str) or not _KID_RE.fullmatch(kid):
-            raise WolsTrustStoreError(message=f"invalid kid {kid!r}")
-        if kid in store:
-            raise WolsTrustStoreError(message=f"kid {kid!r} appears more than once")
+            raise WolsTrustStoreError(message=f"keys[{index}] must be an object")
+        alg = entry.get("alg")
         if not isinstance(alg, str):
-            raise WolsTrustStoreError(message=f"key {kid!r} needs a string 'alg'")
+            raise WolsTrustStoreError(message=f"keys[{index}] needs a string 'alg'")
+        if alg != ED25519:
+            # Unsupported algorithm: skipped, other members unchecked.
+            if on_skip is not None:
+                on_skip(entry)
+            continue
+        kid, encoded = entry.get("kid"), entry.get("publicKey")
+        if not isinstance(kid, str) or not _KID_RE.fullmatch(kid):
+            raise WolsTrustStoreError(message=f"keys[{index}]: invalid kid {kid!r}")
         if not isinstance(encoded, str) or not re.fullmatch(
             r"[A-Za-z0-9_-]{43}", encoded
         ):
@@ -764,6 +785,8 @@ def trust_store_from_key_set(document: str | bytes | Mapping[str, Any]) -> Trust
             raise WolsTrustStoreError(
                 message=f"publicKey for {kid!r} is not canonical base64url"
             )
+        if kid in store:
+            raise WolsTrustStoreError(message=f"kid {kid!r} appears more than once")
         try:
             store[kid] = TrustedKey(public_key=public_key, alg=alg)
         except WolsTrustStoreError as e:
