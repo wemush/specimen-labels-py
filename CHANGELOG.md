@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Tests
+### Added
 
 - The conformance runner supports the `verifyNested` operation
   (sign-then-encrypt): it verifies an encrypted URL's `sig`, decrypts the URL
