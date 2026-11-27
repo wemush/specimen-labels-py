@@ -4,6 +4,15 @@ on:
   push:
     tags:
       - '*'
+  # Finish a release whose tag already published to PyPI (for example, the container
+  # image or GitHub release step failed). Runs everything except the PyPI upload, and
+  # attaches the files PyPI already has to the GitHub release.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to finish (already on PyPI), e.g. 1.5.0rc1'
+        required: true
+        type: string
 
 env:
   EXIT_ON_PUBLISH_FAILURE: 1
@@ -23,6 +32,8 @@ jobs:
     steps:
       - name: Checkout Source
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
@@ -44,6 +55,8 @@ jobs:
     steps:
       - name: Checkout Source
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
@@ -77,6 +90,7 @@ jobs:
       - name: Checkout Source
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
           fetch-depth: 0
 
       - name: Install uv and set the python version
@@ -93,12 +107,32 @@ jobs:
           echo "Python Module Version: $MODULE_VERSION"
           if [[ "wols $TAG_VERSION" != "$MODULE_VERSION" ]]; then exit 1; fi
           echo "TAG_VERSION=$TAG_VERSION" >> $GITHUB_ENV
+          # PEP 440 pre-releases (1.5.0a1, 1.5.0b2, 1.5.0rc1, 1.5.0.dev1)
+          if [[ "$TAG_VERSION" =~ (a|b|rc|\.dev)[0-9]+$ ]]; then
+            echo "PRERELEASE=true" >> $GITHUB_ENV
+          else
+            echo "PRERELEASE=false" >> $GITHUB_ENV
+          fi
 
       - name: Build Package
+        if: github.event_name == 'push'
         run: uv build
 
       - name: Publish to PyPi
+        if: github.event_name == 'push'
         run: uv publish || exit $EXIT_ON_PUBLISH_FAILURE
+
+      # Manual runs reuse the exact files already on PyPI instead of rebuilding them.
+      - name: Download published files from PyPI
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          mkdir -p dist
+          curl -fsSL "https://pypi.org/pypi/wols/${TAG_VERSION}/json" -o release.json
+          jq -r '.urls[] | "\(.digests.sha256)  \(.filename) \(.url)"' release.json |
+            while read -r sha name url; do
+              curl -fsSL "$url" -o "dist/$name"
+              echo "$sha  dist/$name" | sha256sum -c -
+            done
 
       # Container Image Build and Push
       - name: Set up Docker Buildx
@@ -116,11 +150,14 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # Tags are PEP 440 (1.5.0rc1), which semver can't parse. Pre-releases only
+          # get the full version tag; stable releases also get major.minor, major, latest.
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=pep440,pattern={{version}},value=${{ env.TAG_VERSION }}
+            type=pep440,pattern={{major}}.{{minor}},value=${{ env.TAG_VERSION }}
+            type=pep440,pattern={{major}},value=${{ env.TAG_VERSION }}
+          flavor: |
+            latest=${{ env.PRERELEASE == 'false' }}
 
       - name: Build and push container image
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
@@ -137,6 +174,8 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
+          tag_name: ${{ env.TAG_VERSION }}
+          prerelease: ${{ env.PRERELEASE == 'true' }}
           discussion_category_name: announcements
           generate_release_notes: true
           files: |
