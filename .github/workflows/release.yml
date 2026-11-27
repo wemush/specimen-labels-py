@@ -15,7 +15,6 @@ on:
         type: string
 
 env:
-  EXIT_ON_PUBLISH_FAILURE: 1
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
@@ -156,12 +155,16 @@ jobs:
           platforms: linux/amd64,linux/arm64
 
       # PyPI goes last among the publish steps because an upload can't be undone or
-      # replaced. --check-url skips files PyPI already has (builds are reproducible, so a
-      # re-run of the same tag uploads nothing new) and fails on a same-named file with
-      # different contents.
+      # replaced. Trusted Publishing (OIDC, id-token: write) needs no token, and the action
+      # signs a PEP 740 attestation for each file so PyPI shows where it was built.
+      # skip-existing lets a re-run of the same tag upload nothing new (builds are
+      # reproducible, so the files match what PyPI already has).
       - name: Publish to PyPi
         if: github.event_name == 'push'
-        run: uv publish --check-url https://pypi.org/simple/ || exit $EXIT_ON_PUBLISH_FAILURE
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          skip-existing: true
+          attestations: true
 
       # Manual runs reuse the exact files already on PyPI instead of rebuilding them.
       - name: Download published files from PyPI
