@@ -886,7 +886,7 @@ wheels = [
 
 [[package]]
 name = "wols"
-version = "1.4.0"
+version = "1.5.0rc1"
 source = { editable = "." }
 dependencies = [
     { name = "cuid2" },

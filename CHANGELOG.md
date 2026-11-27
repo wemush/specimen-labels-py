@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0rc1] - 2026-11-27
+
+Pre-release (PEP 440 spelling of 1.5.0-rc.1). It still implements WOLS 1.4.0
+(`WOLS_VERSION` is unchanged) and adds tolerance for the 1.5 draft.
+
 ### Changed
 
 - **WOLS 1.5 draft: `_meta` keys are camelCase on the wire.** `to_dict()`,
