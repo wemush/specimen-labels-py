@@ -148,3 +148,14 @@ class TestMetaWireCase:
             "sourceSystem": "b",
             "schemaVersion": "1.3.0",
         }
+
+    def test_camel_case_wins_on_write_when_both_are_present(self) -> None:
+        mixed: Any = {"source_id": "old", "sourceId": "new"}
+        specimen = Specimen(
+            id="wemush:clx1a2b3c4",
+            version="1.4.0",
+            type=SpecimenType.SUBSTRATE,
+            species="Pleurotus ostreatus",
+            _meta=mixed,
+        )
+        assert specimen.to_dict()["_meta"] == {"sourceId": "new"}
