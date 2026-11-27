@@ -118,22 +118,6 @@ jobs:
         if: github.event_name == 'push'
         run: uv build
 
-      - name: Publish to PyPi
-        if: github.event_name == 'push'
-        run: uv publish || exit $EXIT_ON_PUBLISH_FAILURE
-
-      # Manual runs reuse the exact files already on PyPI instead of rebuilding them.
-      - name: Download published files from PyPI
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          mkdir -p dist
-          curl -fsSL "https://pypi.org/pypi/wols/${TAG_VERSION}/json" -o release.json
-          jq -r '.urls[] | "\(.digests.sha256)  \(.filename) \(.url)"' release.json |
-            while read -r sha name url; do
-              curl -fsSL "$url" -o "dist/$name"
-              echo "$sha  dist/$name" | sha256sum -c -
-            done
-
       # Container Image Build and Push
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.1.2
@@ -170,6 +154,26 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
+
+      # PyPI goes last among the publish steps because an upload can't be undone or
+      # replaced. --check-url skips files PyPI already has (builds are reproducible, so a
+      # re-run of the same tag uploads nothing new) and fails on a same-named file with
+      # different contents.
+      - name: Publish to PyPi
+        if: github.event_name == 'push'
+        run: uv publish --check-url https://pypi.org/simple/ || exit $EXIT_ON_PUBLISH_FAILURE
+
+      # Manual runs reuse the exact files already on PyPI instead of rebuilding them.
+      - name: Download published files from PyPI
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          mkdir -p dist
+          curl -fsSL "https://pypi.org/pypi/wols/${TAG_VERSION}/json" -o release.json
+          jq -r '.urls[] | "\(.digests.sha256)  \(.filename) \(.url)"' release.json |
+            while read -r sha name url; do
+              curl -fsSL "$url" -o "dist/$name"
+              echo "$sha  dist/$name" | sha256sum -c -
+            done
 
       - name: Release
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
