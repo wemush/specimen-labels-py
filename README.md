@@ -3,7 +3,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-yellow.svg)](https://opensource.org/licenses/Apache-2.0)
 
-The official Python implementation of the WeMush Open Labeling Standard (WOLS) v1.4.0 for specimen tracking in mushroom cultivation. It passes every case in the [WOLS conformance vectors](https://github.com/wemush/open-standard/tree/main/conformance) (see [`tests/conformance/`](tests/conformance/README.md)).
+The official Python implementation of the WeMush Open Labeling Standard (WOLS) v1.4.0 for specimen tracking in mushroom cultivation. It passes every case in the [WOLS conformance vectors](https://github.com/wemush/open-standard/tree/1.4.0/conformance) (see [`tests/conformance/`](tests/conformance/README.md)).
 
 > **Upgrading from 1.3?** 1.4.0 adds signatures and doesn't change the wire format. See [Upgrading from 1.3](#upgrading-from-13).
 >
@@ -227,7 +227,7 @@ Security notes:
 ### Signing and verifying
 
 Signatures implement the WOLS 1.4.0
-[Cryptographic Signatures](https://github.com/wemush/open-standard/blob/main/SPECIFICATION.md#cryptographic-signatures)
+[Cryptographic Signatures](https://github.com/wemush/open-standard/blob/1.4.0/SPECIFICATION.md#cryptographic-signatures)
 scheme and pass every `signatures.json` conformance vector.
 
 Signing requires the `crypto` extra. A signature is Ed25519 (RFC 8032) over
