@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "wols"
-version = "1.4.0"
+version = "1.5.0rc1"
 description = "WeMush Open Labeling Standard (WOLS) Python library"
 readme = "README.md"
 license = "Apache-2.0"

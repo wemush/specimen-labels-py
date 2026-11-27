@@ -98,7 +98,7 @@ from wols.type_aliases import (
     resolve_type_alias,
 )
 
-__version__ = "1.4.0"
+__version__ = "1.5.0rc1"
 
 __all__ = [
     "DEFAULT_HTTPS_BASE_URL",
