@@ -11,7 +11,7 @@ The files in `vectors/` are copied unmodified from
 | Field | Value |
 | ----- | ----- |
 | Version | `1.4.0` (final, [open-standard#29](https://github.com/wemush/open-standard/pull/29)), plus the sign-then-encrypt cases |
-| Commit | `a21169753abae0fcfbf19482955168b4bf8d02ed` (branch `conformance/sign-then-encrypt-vector`, not yet on `main`) |
+| Commit | `4b9235e3f3371b424718dcfe506bad2abe2f9241` (`main`, open-standard PR #30) |
 | Path | `conformance/vectors/{embedded,primordia,generation,encrypted,field-encryption,signatures}.json` and `SHA256SUMS` |
 
 `1.4.0` leaves the 1.3.0 cases unchanged and adds `signatures.json`,
@@ -23,12 +23,10 @@ cases for an integer `strain.generation` (`generation-numeric`,
 library passes. The final `1.4.0` specification leaves every vector file
 byte-identical to the `1.4.0-rc.1` copies from `a44dd3a`.
 
-`signatures.json` is vendored from open-standard `a211697`, which adds the
-sign-then-encrypt cases on top of `02079df`: six `verifyNested` cases and
-`sign-nested-encrypted-url`, for 119 cases. The other vector files are
-byte-identical to the `02079df` copies. `a211697` is not on upstream `main`
-yet; once the open-standard change merges, refresh from `main` as below and
-record the merged commit.
+`signatures.json` is vendored from open-standard `main` at `4b9235e`
+(PR #30), which adds the sign-then-encrypt cases on top of `02079df`: six
+`verifyNested` cases and `sign-nested-encrypted-url`, for 119 cases. The other
+vector files are byte-identical to the `02079df` copies.
 
 `vectors/SHA256SUMS` is copied from upstream too. Check the vendored files
 with:
