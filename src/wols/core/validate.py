@@ -15,6 +15,7 @@ from wols.generation import (
 )
 from wols.models.enums import GrowthStage, SpecimenType
 from wols.models.specimen import (
+    SPECIMEN_FIELDS,
     Specimen,
     is_encrypted_field,
     is_non_negative_int,
@@ -161,23 +162,7 @@ def validate_specimen(
     data = specimen.to_dict() if isinstance(specimen, Specimen) else specimen
 
     # Known fields in WOLS schema (v1.2.0 adds _meta)
-    known_fields = {
-        "@context",
-        "@type",
-        "id",
-        "version",
-        "type",
-        "species",
-        "strain",
-        "stage",
-        "created",
-        "batch",
-        "organization",
-        "creator",
-        "custom",
-        "signature",
-        "_meta",  # v1.2.0
-    }
+    known_fields = SPECIMEN_FIELDS
 
     # Check for unknown fields
     for field in data:

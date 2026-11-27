@@ -97,8 +97,11 @@ class TestSpecimenMetaSerialization:
         )
         data = specimen.to_dict()
         assert "_meta" in data
-        assert data["_meta"]["source_id"] == "ext-456"
-        assert data["_meta"]["imported_at"] == "2024-06-01T12:00:00Z"
+        # WOLS 1.5 draft: _meta keys are camelCase on the wire.
+        assert data["_meta"] == {
+            "sourceId": "ext-456",
+            "importedAt": "2024-06-01T12:00:00Z",
+        }
 
     def test_to_json_with_meta(self) -> None:
         """Verify to_json includes _meta field."""
@@ -113,7 +116,7 @@ class TestSpecimenMetaSerialization:
         json_str = to_json(specimen)
         data = json.loads(json_str)
         assert "_meta" in data
-        assert data["_meta"]["source_system"] == "import-tool"
+        assert data["_meta"] == {"sourceSystem": "import-tool"}
 
 
 class TestSpecimenMetaParsing:
