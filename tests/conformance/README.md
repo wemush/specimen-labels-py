@@ -10,8 +10,8 @@ The files in `vectors/` are copied unmodified from
 
 | Field | Value |
 | ----- | ----- |
-| Version | `1.4.0` (final, [open-standard#29](https://github.com/wemush/open-standard/pull/29)) |
-| Commit | `02079df49c9e60b6baddd54f40a9cf9c6650cb88` |
+| Version | `1.4.0` (final, [open-standard#29](https://github.com/wemush/open-standard/pull/29)), plus the sign-then-encrypt cases |
+| Commit | `4b9235e3f3371b424718dcfe506bad2abe2f9241` (`main`, open-standard PR #30) |
 | Path | `conformance/vectors/{embedded,primordia,generation,encrypted,field-encryption,signatures}.json` and `SHA256SUMS` |
 
 `1.4.0` leaves the 1.3.0 cases unchanged and adds `signatures.json`,
@@ -22,6 +22,11 @@ cases for an integer `strain.generation` (`generation-numeric`,
 `decrypt-numeric-generation`, `decrypt-fields-numeric-generation`), which this
 library passes. The final `1.4.0` specification leaves every vector file
 byte-identical to the `1.4.0-rc.1` copies from `a44dd3a`.
+
+`signatures.json` is vendored from open-standard `main` at `4b9235e`
+(PR #30), which adds the sign-then-encrypt cases on top of `02079df`: six
+`verifyNested` cases and `sign-nested-encrypted-url`, for 119 cases. The other
+vector files are byte-identical to the `02079df` copies.
 
 `vectors/SHA256SUMS` is copied from upstream too. Check the vendored files
 with:
@@ -41,6 +46,7 @@ cd tests/conformance/vectors && shasum -a 256 -c SHA256SUMS
 | `decryptFields` | `wols.crypto.decrypt_specimen_fields(specimen, secret)`, compared with `expected.specimen`. Failure reasons map to codes as for `decrypt`. |
 | `sign` | `wols.crypto.sign_specimen(label, seed, kid)` or `sign_encrypted_url(url, seed, kid)`, with the seed from `testKeys`. The token must match exactly. `signingInput` is checked with `wols.crypto.jcs.canonicalize`. A `refused` case must raise `WolsSignatureError`. |
 | `verify` | `wols.crypto.verify_specimen(label_or_url, trust_store)`, and also `verify_embedded` or `verify_encrypted_url`, against `input.trustStore` or else the file's `trustStore`. The status must match; for `valid`, so must the kid. For a `configError` case, building the `TrustedKey` must raise `WolsTrustStoreError`, and verifying with the unchecked entry must give `invalid`. |
+| `verifyNested` | Sign-then-encrypt. `verify_specimen(url, trust_store)` (and `verify_encrypted_url`) for `outer`; `decrypt_specimen_bytes(url, secret)` for the exact `plaintext`, and `decrypt_specimen`; then `verify_specimen` (and `verify_embedded`) on the decrypted text as received for `inner`. Each layer's status, and for `valid` its kid and signing input, must match. A failed decryption's `reason` maps to a code as for `decrypt`, and has no `inner`. |
 | `loadKeySet` | `wols.crypto.trust_store_from_key_set(document, on_skip=...)`, with the document both parsed and as JSON text. A `configError` case must raise `WolsTrustStoreError`. Otherwise the sorted kids must equal `kids`, `on_skip` must be called `skipped` times, and `verify_specimen(label, store)` must give `status` (and `kid` for `valid`). |
 
 For `decrypt` cases with `sig`, the test also checks that

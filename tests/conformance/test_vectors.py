@@ -298,6 +298,58 @@ def check_load_key_set(case: dict[str, Any]) -> None:
             assert result.kid == expected["kid"]
 
 
+def _check_layer(layer: str, text: str, expected: dict[str, Any] | None) -> None:
+    assert expected is not None, f"{layer} expectation missing"
+    result = verify_specimen(text, TRUST_STORE)
+    assert result.status == expected["status"], (layer, result)
+    if result.status is SignatureStatus.VALID:
+        assert result.kid == expected["kid"], layer
+        if layer == "outer":
+            body = text[: text.rindex("&sig=")]
+            assert (
+                _signing_prefix("encrypted-url", result.kid) + body
+                == expected["signingInput"]
+            )
+        else:
+            assert (
+                _signing_prefix("embedded", result.kid) + _embedded_body(text)
+                == expected["signingInput"]
+            )
+    else:
+        assert result.reason
+
+
+def check_verify_nested(case: dict[str, Any]) -> None:
+    """Sign-then-encrypt: verify the URL, decrypt it, then verify the plaintext."""
+    inp = case["input"]
+    expected = case["expected"]
+    assert inp["form"] == "encrypted-url"
+    url = inp["url"]
+    secret = _secret(inp["secret"])
+
+    # 1. Outer: the URL signature, checked without decrypting.
+    _check_layer("outer", url, expected["outer"])
+    assert verify_encrypted_url(url, TRUST_STORE) == verify_specimen(url, TRUST_STORE)
+
+    # 2. Decrypt to the exact plaintext bytes.
+    if not expected["decrypt"]["success"]:
+        assert "inner" not in expected
+        with pytest.raises(WolsEncryptionError) as exc_info:
+            decrypt_specimen_bytes(url, secret)
+        assert exc_info.value.code == _error_code(expected["decrypt"]["reason"])
+        with pytest.raises(WolsEncryptionError):
+            decrypt_specimen(url, secret)
+        return
+    plaintext = decrypt_specimen_bytes(url, secret)
+    assert plaintext == expected["decrypt"]["plaintext"].encode("utf-8")
+    decrypt_specimen(url, secret)
+
+    # 3. Inner: the decrypted text as received, never a rebuilt label.
+    text = plaintext.decode("utf-8")
+    _check_layer("inner", text, expected.get("inner"))
+    assert verify_embedded(text, TRUST_STORE) == verify_specimen(text, TRUST_STORE)
+
+
 def _error_code(reason: str) -> str:
     """The vector's reason is a suggested category; this library uses the
     same names as error codes (``id-mismatch`` becomes ``ID_MISMATCH``)."""
@@ -313,6 +365,7 @@ CHECKS: dict[str, Callable[[dict[str, Any]], None]] = {
     "sign": check_sign,
     "verify": check_verify,
     "loadKeySet": check_load_key_set,
+    "verifyNested": check_verify_nested,
 }
 
 
