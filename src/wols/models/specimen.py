@@ -33,6 +33,76 @@ class SpecimenMeta(TypedDict, total=False):
     schema_version: str
 
 
+# Top-level members of a WOLS specimen this library knows. Anything else is an
+# unknown member: valid (with a warning) and kept on re-serialization.
+SPECIMEN_FIELDS: frozenset[str] = frozenset(
+    {
+        "@context",
+        "@type",
+        "id",
+        "version",
+        "type",
+        "species",
+        "strain",
+        "stage",
+        "created",
+        "batch",
+        "organization",
+        "creator",
+        "custom",
+        "signature",
+        "_meta",  # v1.2.0
+    }
+)
+
+# WOLS 1.5 draft: _meta keys are camelCase on the wire. SpecimenMeta keeps its
+# snake_case keys in Python; to_dict() writes camelCase and from_dict() reads
+# either form. Keys not listed here pass through unchanged.
+_META_WIRE_KEYS: dict[str, str] = {
+    "source_id": "sourceId",
+    "imported_at": "importedAt",
+    "source_system": "sourceSystem",
+    "schema_version": "schemaVersion",
+}
+_META_PYTHON_KEYS: dict[str, str] = {v: k for k, v in _META_WIRE_KEYS.items()}
+
+
+def meta_to_wire(meta: SpecimenMeta | dict[str, Any]) -> dict[str, Any]:
+    """Return ``_meta`` with its standard keys in camelCase (WOLS 1.5 draft).
+
+    When a mapping holds both forms of a key, the camelCase value wins.
+    """
+    source: dict[str, Any] = dict(meta)
+    result: dict[str, Any] = {}
+    for key, value in source.items():
+        wire_key = _META_WIRE_KEYS.get(key)
+        if wire_key is None:
+            result[key] = value
+        elif wire_key not in source:
+            result[wire_key] = value
+    return result
+
+
+def meta_from_wire(meta: dict[str, Any]) -> SpecimenMeta:
+    """Return ``_meta`` with its standard keys in snake_case.
+
+    Accepts camelCase (the 1.5 wire form) and snake_case (what 1.4.0 and
+    earlier releases of this library wrote). When both forms of a key are
+    present, the camelCase value wins.
+    """
+    result: dict[str, Any] = {}
+    for key, value in meta.items():
+        python_key = _META_PYTHON_KEYS.get(key)
+        if python_key is not None:
+            result[python_key] = value
+        elif key in _META_WIRE_KEYS:
+            if _META_WIRE_KEYS[key] not in meta:
+                result[key] = value
+        else:
+            result[key] = value
+    return result  # type: ignore[return-value]
+
+
 def is_non_negative_int(value: object) -> bool:
     """Return True if value is a non-negative int (bool is rejected)."""
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
@@ -176,6 +246,11 @@ class Specimen:
         custom: Namespace for custom fields.
         signature: Digital signature.
         _meta: Reserved namespace for round-trip metadata (v1.2.0).
+        unknown_members: Top-level members this library doesn't know, kept as
+            received so a parse and re-serialize round trip doesn't drop them
+            (WOLS 1.5 draft). ``to_dict()`` writes them back at the top level
+            after the known fields, and never over a known field. Put your own
+            vendor data in ``custom`` instead.
     """
 
     id: str
@@ -191,6 +266,7 @@ class Specimen:
     custom: dict[str, Any] | None = None
     signature: str | None = None
     _meta: SpecimenMeta | None = None  # v1.2.0
+    unknown_members: dict[str, Any] | None = None  # WOLS 1.5 draft
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dictionary with JSON-LD context."""
@@ -220,7 +296,11 @@ class Specimen:
         if self.signature is not None:
             result["signature"] = self.signature
         if self._meta is not None:
-            result["_meta"] = dict(self._meta)
+            result["_meta"] = meta_to_wire(self._meta)
+        if self.unknown_members is not None:
+            for key, value in self.unknown_members.items():
+                if key not in SPECIMEN_FIELDS:
+                    result[key] = value
         return result
 
     @classmethod
@@ -252,12 +332,15 @@ class Specimen:
                     f"got {type(created_value).__name__}"
                 )
 
-        # Parse _meta field (v1.2.0)
-        # Use dict copy to preserve arbitrary keys (including non-identifier keys)
+        # Parse _meta field (v1.2.0). Arbitrary keys are kept; the standard
+        # keys are read in camelCase or snake_case (WOLS 1.5 draft).
         meta_value = data.get("_meta")
         meta: SpecimenMeta | None = None
         if meta_value is not None and isinstance(meta_value, dict):
-            meta = dict(meta_value)  # type: ignore[assignment]
+            meta = meta_from_wire(meta_value)
+
+        # WOLS 1.5 draft: keep unknown top-level members for re-serialization.
+        unknown = {k: v for k, v in data.items() if k not in SPECIMEN_FIELDS}
 
         return cls(
             id=data["id"],
@@ -273,6 +356,7 @@ class Specimen:
             custom=data.get("custom"),
             signature=data.get("signature"),
             _meta=meta,
+            unknown_members=unknown or None,
         )
 
 

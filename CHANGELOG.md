@@ -7,8 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **WOLS 1.5 draft: `_meta` keys are camelCase on the wire.** `to_dict()`,
+  `to_json()` and encryption write `sourceId`, `importedAt`, `sourceSystem`
+  and `schemaVersion`, as the TypeScript library does. Parsing reads either
+  case, and camelCase wins when a label has both. In Python, `SpecimenMeta`
+  keeps its snake_case keys, so code that reads `specimen._meta["source_id"]`
+  is unchanged. Code that reads `_meta` keys from `to_dict()` output must use
+  camelCase. Other `_meta` keys pass through unchanged.
+
 ### Added
 
+- **WOLS 1.5 draft: unknown top-level members are kept.** Validation still
+  warns about each one, and parsing now keeps them on the new
+  `Specimen.unknown_members`. `to_dict()` writes them back after the known
+  fields, so a parse and re-save no longer drops 1.5 members such as `taxon`,
+  `lot` or `derivedFrom`. A kept member never overrides a known field.
+  Pre-release versions such as `1.5.0-rc.1` already parse, with the usual
+  unrecognized-version warning.
+- The interop harnesses compare `_meta` with its standard keys read as
+  camelCase, so a label written either way matches the matrix. They match the
+  copies in open-standard `conformance/interop/`.
 - The conformance runner supports the `verifyNested` operation
   (sign-then-encrypt): it verifies an encrypted URL's `sig`, decrypts the URL
   to its exact plaintext, and verifies the plaintext's own `signature`.
