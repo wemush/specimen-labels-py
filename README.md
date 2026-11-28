@@ -3,7 +3,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-yellow.svg)](https://opensource.org/licenses/Apache-2.0)
 
-The official Python implementation of the WeMush Open Labeling Standard (WOLS) v1.4.0 for specimen tracking in mushroom cultivation. It passes every case in the [WOLS conformance vectors](https://github.com/wemush/open-standard/tree/1.4.0/conformance) (see [`tests/conformance/`](tests/conformance/README.md)).
+The official Python implementation of the WeMush Open Labeling Standard (WOLS) v1.4.0 for specimen tracking in mushroom cultivation. It passes every case in the [WOLS conformance vectors](https://github.com/wemush/open-standard/tree/1.4.0/conformance), including the WOLS 1.5 release-candidate vectors (see [`tests/conformance/`](tests/conformance/README.md) and [WOLS 1.5 release candidates](#wols-15-release-candidates)).
 
 > **Upgrading from 1.3?** 1.4.0 adds signatures and doesn't change the wire format. See [Upgrading from 1.3](#upgrading-from-13).
 >
@@ -379,6 +379,65 @@ Other notes:
   and when you decode a label that carries one (WOLS 1.4.0).
 - **Compact URLs**: `parse_compact_url` accepts `wemush://`, `web+wemush://`,
   and `https://`. The compact URL output is unchanged in 1.3.0 and 1.4.0.
+
+## WOLS 1.5 release candidates
+
+The library reads, writes back and validates the WOLS 1.5 release candidates
+(`1.5.0-rc.1` data model and Records Bundle, `1.5.0-rc.2` compact URLs and
+compact URL signatures), and passes their conformance vectors. New labels are
+still written as `1.4.0` until 1.5.0 is final.
+
+```python
+from wols import create_specimen, validate_bundle
+
+specimen = create_specimen(
+    type="SPAWN",
+    species="Pleurotus ostreatus",
+    form="GRAIN_SPAWN",
+    derived_from=[{"id": "wemush:parent", "relation": "EXPANSION"}],
+    condition="ACTIVE",
+    container={"format": "JAR", "capacity": {"value": 1, "unit": "L"}},
+    lot="L-2026-001",
+)
+
+result = validate_bundle(bundle)  # a parsed Records Bundle
+```
+
+- **New label members**: `taxon`, `form`, `derivedFrom`, `condition`,
+  `container`, `lot` and `strain.accession` are fields on `Specimen` and
+  `Strain` (`taxon`, `form`, `derived_from`, `condition`, `container`, `lot`,
+  `accession`). `strain.name` is optional. Members the library doesn't know,
+  at the top level or inside `strain`, are kept and written back.
+- **Validation**: `validate_specimen` checks the new members as the 1.5 JSON
+  Schema defines them, and reports `strain.lineage` when it differs from
+  `derivedFrom[0].id`. Where the 1.5 schema is stricter about a member 1.4
+  labels already used (an empty `batch`, a `created` without a time zone, a
+  `lineage` that isn't a specimen ID), it warns instead.
+- **Records Bundle**: `validate_bundle` checks a bundle's header, its
+  records, each specimen as a label, and that `observations[].specimen`,
+  `harvests[].specimen`, `strainRef` and `recipeRef` resolve inside it.
+- **Compact URLs** follow rc.2: `s` is required, `v1` is the only version,
+  values are percent-decoded as UTF-8 (`+` is a space in a value and a
+  literal `+` in the ID), and a bad URL raises `WolsParseError` with the
+  vector reason as its code (`INVALID_URL`, `UNSUPPORTED_VERSION`,
+  `ENCRYPTED_URL`, `MISSING_PARAMETER`, `INVALID_PARAMETER`,
+  `DUPLICATE_PARAMETER`, `INVALID_ENCODING`). `SpecimenRef` gains `type`,
+  `created`, `batch`, `strain`, `unrecognized_params` and the raw `signature`.
+- **Compact URL signatures**: `sign_compact_url` signs a `wemush://v1/{id}?...`
+  URL's exact bytes, and `verify_specimen` (or `verify_compact_url`) verifies
+  it. A valid result carries the decoded `params` and the names in
+  `unrecognized_params`. `unwrap_wols_url` turns a `web+wemush://` or
+  `https://{host}/wols/...` scan into the URL to verify. `to_compact_url`
+  still writes `web+wemush://` by default; pass `scheme="wemush"` for a URL
+  you will sign.
+
+```python
+from wols.crypto import sign_compact_url, verify_specimen
+
+url = to_compact_url(specimen, scheme="wemush")
+signed = sign_compact_url(url, private_key, "w1")
+result = verify_specimen(signed, trust_store)
+```
 
 ## Upgrading from 1.3
 
