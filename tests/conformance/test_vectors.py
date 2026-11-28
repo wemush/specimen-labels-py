@@ -13,6 +13,7 @@ import hashlib
 import json
 import warnings
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +24,12 @@ from wols import (
     SpecimenType,
     WolsWarning,
     create_specimen,
+    parse_compact_url,
+    parse_compact_url_or_none,
+    parse_specimen,
     to_json,
+    unwrap_wols_url,
+    validate_bundle,
     validate_specimen,
 )
 from wols.crypto import (
@@ -36,9 +42,11 @@ from wols.crypto import (
     decrypt_specimen_fields,
     derive_key,
     parse_encrypted_url,
+    sign_compact_url,
     sign_encrypted_url,
     sign_specimen,
     trust_store_from_key_set,
+    verify_compact_url,
     verify_embedded,
     verify_encrypted_url,
     verify_specimen,
@@ -46,6 +54,7 @@ from wols.crypto import (
 from wols.crypto.jcs import canonicalize, parse_json
 from wols.exceptions import (
     WolsEncryptionError,
+    WolsParseError,
     WolsSignatureError,
     WolsTrustStoreError,
 )
@@ -59,12 +68,26 @@ VECTOR_FILES = (
     "encrypted",
     "field-encryption",
     "signatures",
+    # WOLS 1.5 release candidates (open-standard spec/1.5.0-rc.2)
+    "data-model",
+    "bundle",
+    "compact",
+    "compact-signatures",
 )
-# The signature scheme is WOLS 1.4.0; the other files target the 1.3.0 wire
-# format, which 1.4.0 leaves unchanged.
-VECTOR_VERSIONS = {"signatures": "1.4.0"}
+# The signature scheme is WOLS 1.4.0 and the 1.5 files target its release
+# candidates; the other files target the 1.3.0 wire format, which 1.4.0
+# leaves unchanged.
+VECTOR_VERSIONS = {
+    "signatures": "1.4.0",
+    "data-model": "1.5.0-rc.1",
+    "bundle": "1.5.0-rc.1",
+    "compact": "1.5.0-rc.2",
+    "compact-signatures": "1.5.0-rc.2",
+}
 
-_SIGNATURES = json.loads((VECTORS_DIR / "signatures.json").read_text(encoding="utf-8"))
+
+def _read(name: str) -> Any:
+    return json.loads((VECTORS_DIR / f"{name}.json").read_text(encoding="utf-8"))
 
 
 def _trust_store(entries: dict[str, dict[str, str]]) -> TrustStore:
@@ -76,21 +99,45 @@ def _trust_store(entries: dict[str, dict[str, str]]) -> TrustStore:
     }
 
 
-TRUST_STORE = _trust_store(_SIGNATURES["trustStore"])
-TEST_SEEDS = {
-    name: b64url_decode(key["seedBase64url"])
-    for name, key in _SIGNATURES["testKeys"].items()
-}
+@dataclass(frozen=True)
+class Keys:
+    """A signature vector file's own signing domain, trust store and keys."""
+
+    domain: str
+    store: TrustStore
+    seeds: dict[str, bytes]
+
+    @classmethod
+    def load(cls, name: str) -> Keys:
+        doc = _read(name)
+        return cls(
+            domain=doc["signingDomain"],
+            store=_trust_store(doc["trustStore"]),
+            seeds={
+                kid: b64url_decode(key["seedBase64url"])
+                for kid, key in doc["testKeys"].items()
+            },
+        )
+
+
+# Each signature file is checked against its own trust store and keys
+# (compact-signatures.json adds the short kid `w1`).
+KEYS = {name: Keys.load(name) for name in ("signatures", "compact-signatures")}
+TRUST_STORE = KEYS["signatures"].store
+
+
+def _keys(case: dict[str, Any]) -> Keys:
+    return KEYS.get(case.get("_file", ""), KEYS["signatures"])
 
 
 def _load_cases() -> list[Any]:
     params = []
     for name in VECTOR_FILES:
-        doc = json.loads((VECTORS_DIR / f"{name}.json").read_text(encoding="utf-8"))
+        doc = _read(name)
         for case in doc["cases"]:
             params.append(
                 pytest.param(
-                    case,
+                    {**case, "_file": name},
                     id=f"{name}:{case['id']}",
                     marks=pytest.mark.conformance(
                         file=name, requirement=case["requirement"]
@@ -116,6 +163,67 @@ def check_validate(case: dict[str, Any]) -> None:
     if "warningField" in expected:
         paths = [w.path for w in result.warnings]
         assert expected["warningField"] in paths, paths
+
+
+def check_validate_bundle(case: dict[str, Any]) -> None:
+    expected = case["expected"]
+    result = validate_bundle(case["input"])
+    assert result.valid is expected["valid"], result.errors
+    if "errorField" in expected:
+        paths = [e.path for e in result.errors]
+        assert expected["errorField"] in paths, paths
+
+
+def check_roundtrip(case: dict[str, Any]) -> None:
+    """Decode and re-encode: the output must equal the expected object."""
+    specimen = parse_specimen(case["input"]["text"])
+    output = json.loads(to_json(specimen))
+    assert output == case["expected"]["output"]
+    # Re-encoding the output is stable.
+    assert json.loads(to_json(parse_specimen(json.dumps(output)))) == output
+
+
+def check_parse_compact(case: dict[str, Any]) -> None:
+    url = case["input"]["url"]
+    expected = case["expected"]
+
+    if expected.get("refused"):
+        with pytest.raises(WolsParseError) as exc_info:
+            parse_compact_url(url)
+        assert exc_info.value.code == _error_code(expected["reason"])
+        assert parse_compact_url_or_none(url) is None
+        return
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        ref = parse_compact_url(url)
+    messages = [str(w.message) for w in caught if issubclass(w.category, WolsWarning)]
+
+    # The vector's label shape: the label members, then the unrecognized
+    # parameters and the raw `sig`, which is never verified by parsing.
+    label = ref.to_dict()
+    if ref.unrecognized_params:
+        label["unrecognized"] = dict(ref.unrecognized_params)
+    if ref.signature is not None:
+        label["sig"] = ref.signature
+    assert label == expected["label"]
+
+    if "warningField" in expected:
+        field = expected["warningField"]
+        assert messages, "expected a warning"
+        if field == "td":
+            assert any("'td'" in m for m in messages), messages
+    else:
+        assert not messages, messages
+
+
+def check_unwrap(case: dict[str, Any]) -> None:
+    unwrapped = unwrap_wols_url(case["input"]["text"])
+    assert unwrapped == case["expected"]["url"]
+    if unwrapped is not None:
+        # Every vector that unwraps carries a valid compact URL signature.
+        result = verify_specimen(unwrapped, _keys(case).store)
+        assert result.status is SignatureStatus.VALID, result
 
 
 def check_create(case: dict[str, Any]) -> None:
@@ -189,8 +297,16 @@ def check_decrypt_fields(case: dict[str, Any]) -> None:
         assert exc_info.value.code == _error_code(expected["reason"])
 
 
-def _signing_prefix(form: str, kid: str) -> str:
-    return f"{_SIGNATURES['signingDomain']}\n{form}\n{kid}\n"
+def _signing_prefix(form: str, kid: str, keys: Keys | None = None) -> str:
+    domain = (keys or KEYS["signatures"]).domain
+    return f"{domain}\n{form}\n{kid}\n"
+
+
+_URL_SIGNERS = {"encrypted-url": sign_encrypted_url, "compact-url": sign_compact_url}
+_URL_VERIFIERS = {
+    "encrypted-url": verify_encrypted_url,
+    "compact-url": verify_compact_url,
+}
 
 
 def _embedded_body(label_text: str) -> str:
@@ -202,15 +318,16 @@ def check_sign(case: dict[str, Any]) -> None:
     inp = case["input"]
     expected = case["expected"]
     kid = inp["kid"]
-    seed = TEST_SEEDS[inp["key"]]
-    prefix = _signing_prefix(inp["form"], kid)
+    keys = _keys(case)
+    seed = keys.seeds[inp["key"]]
+    prefix = _signing_prefix(inp["form"], kid, keys)
 
     if expected.get("refused"):
         with pytest.raises(WolsSignatureError):
             if inp["form"] == "embedded":
                 sign_specimen(inp["label"], seed, kid)
             else:
-                sign_encrypted_url(inp["url"], seed, kid)
+                _URL_SIGNERS[inp["form"]](inp["url"], seed, kid)
         return
 
     if inp["form"] == "embedded":
@@ -222,15 +339,16 @@ def check_sign(case: dict[str, Any]) -> None:
         original = json.loads(inp["label"])
         original.pop("signature", None)
         assert {k: v for k, v in signed_obj.items() if k != "signature"} == original
-        result = verify_specimen(signed, TRUST_STORE)
+        result = verify_specimen(signed, keys.store)
     else:
         assert prefix + inp["url"] == expected["signingInput"]
-        signed = sign_encrypted_url(inp["url"], seed, kid)
+        signed = _URL_SIGNERS[inp["form"]](inp["url"], seed, kid)
         assert signed == expected["url"]
         assert signed == f"{inp['url']}&sig={expected['signature']}"
-        result = verify_specimen(signed, TRUST_STORE)
+        result = verify_specimen(signed, keys.store)
     assert result.status is SignatureStatus.VALID
     assert result.kid == kid
+    assert result.form == inp["form"]
 
 
 def _unchecked_trust_store(entries: dict[str, dict[str, str]]) -> Any:
@@ -245,7 +363,8 @@ def _unchecked_trust_store(entries: dict[str, dict[str, str]]) -> Any:
 def check_verify(case: dict[str, Any]) -> None:
     inp = case["input"]
     expected = case["expected"]
-    store = TRUST_STORE
+    keys = _keys(case)
+    store = keys.store
     if "trustStore" in inp:
         if expected.get("configError"):
             # Rejected when the trust store is built ...
@@ -260,14 +379,15 @@ def check_verify(case: dict[str, Any]) -> None:
         direct = verify_embedded(label, store)
     else:
         label = inp["url"]
-        direct = verify_encrypted_url(label, store)
+        direct = _URL_VERIFIERS[inp["form"]](label, store)
     result = verify_specimen(label, store)
 
     assert result.status == expected["status"], result
     assert direct == result
     if result.status is SignatureStatus.VALID:
         assert result.kid == expected["kid"]
-        prefix = _signing_prefix(inp["form"], expected["kid"])
+        assert result.form == inp["form"]
+        prefix = _signing_prefix(inp["form"], expected["kid"], keys)
         if inp["form"] == "embedded":
             assert prefix + _embedded_body(label) == expected["signingInput"]
         else:
@@ -366,6 +486,10 @@ CHECKS: dict[str, Callable[[dict[str, Any]], None]] = {
     "verify": check_verify,
     "loadKeySet": check_load_key_set,
     "verifyNested": check_verify_nested,
+    "validateBundle": check_validate_bundle,
+    "roundtrip": check_roundtrip,
+    "parseCompact": check_parse_compact,
+    "unwrap": check_unwrap,
 }
 
 
@@ -383,7 +507,7 @@ def test_conformance_vector(case: dict[str, Any]) -> None:
 
 def test_all_vector_files_present() -> None:
     for name in VECTOR_FILES:
-        doc = json.loads((VECTORS_DIR / f"{name}.json").read_text(encoding="utf-8"))
+        doc = _read(name)
         assert doc["wolsVersion"] == VECTOR_VERSIONS.get(name, "1.3.0")
         assert doc["cases"]
 
