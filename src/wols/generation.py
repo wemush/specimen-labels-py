@@ -13,8 +13,9 @@ from typing import Any, TypeGuard
 from wols.exceptions import WolsWarning
 
 # Pattern for parsing generation strings
-# Accepts: P, P1, F1, F2, G1, G2, or plain numbers (1, 2, 3)
-GENERATION_PARSE_PATTERN = re.compile(r"^(P|P1|F(\d+)|G(\d+)|(\d+))$", re.IGNORECASE)
+# Accepts: P, P{n}, F{n}, G{n} or plain numbers (1, 2, 3), letters in either
+# case (WOLS 1.5.0-rc.2).
+GENERATION_PARSE_PATTERN = re.compile(r"^(P\d*|F(\d+)|G(\d+)|(\d+))$", re.IGNORECASE)
 
 
 class GenerationFormat(str, Enum):

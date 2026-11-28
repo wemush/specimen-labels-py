@@ -8,6 +8,13 @@ from enum import Enum
 from typing import Any
 
 from wols.constants import ID_PREFIX, SUPPORTED_VERSIONS, WOLS_CONTEXT, WOLS_VERSION
+from wols.core._schema import (
+    LABEL_V15_MEMBERS,
+    SPECIMEN_ID_RE,
+    VERSION_RE,
+    check,
+    is_rfc3339,
+)
 from wols.generation import (
     NUMERIC_GENERATION,
     is_valid_generation,
@@ -133,11 +140,22 @@ def validate_specimen(
     strict: bool = False,
     id_mode: IdValidationMode = IdValidationMode.ANY,
 ) -> ValidationResult:
-    """Validate a specimen against the WOLS v1.4.0 schema.
+    """Validate a specimen label against the WOLS 1.5 data model.
+
+    Checks the members every label has, the 1.4 rules on ``strain``, and the
+    members WOLS 1.5 adds (``taxon``, ``form``, ``derivedFrom``,
+    ``condition``, ``container``, ``lot``, ``strain.accession``), including
+    the rule that ``strain.lineage`` equals ``derivedFrom[0].id``. Error
+    paths are dot paths, such as ``derivedFrom.0.id``.
+
+    Some 1.4 values stay valid with a warning (an empty ``batch``, a
+    ``lineage`` that isn't a specimen ID). ``created`` MUST be an RFC 3339
+    date-time with a time zone (WOLS 1.5.0-rc.2); anything else is an error.
 
     Fields replaced by field-level encryption objects
     (``{"encrypted": true, ...}``) are accepted without inspecting their
-    plaintext.
+    plaintext. ``@context``, ``@type``, ``id``, ``version``, ``type``,
+    ``species`` and ``signature`` may not be encrypted.
 
     Args:
         specimen: Specimen object or dictionary to validate.
@@ -155,18 +173,55 @@ def validate_specimen(
         ...     for error in result.errors:
         ...         print(f"{error.path}: {error.message}")
     """
+    data = specimen.to_dict() if isinstance(specimen, Specimen) else specimen
+    errors, warnings = check_label(data, strict=strict, id_mode=id_mode)
+    return ValidationResult(
+        valid=len(errors) == 0,
+        errors=errors,
+        warnings=warnings,
+    )
+
+
+def check_label(
+    data: dict[str, Any],
+    *,
+    strict: bool = False,
+    id_mode: IdValidationMode = IdValidationMode.ANY,
+    extra_fields: frozenset[str] = frozenset(),
+    prefix: str = "",
+) -> tuple[list[ValidationError], list[ValidationError]]:
+    """The checks behind :func:`validate_specimen`, as (errors, warnings).
+
+    ``extra_fields`` are members accepted in addition to the label's (a
+    bundle's specimen records add some), and ``prefix`` is prepended to
+    every path.
+    """
     errors: list[ValidationError] = []
     warnings: list[ValidationError] = []
+    _check_label(data, strict, id_mode, extra_fields, errors, warnings)
+    if prefix:
+        errors = [_prefixed(e, prefix) for e in errors]
+        warnings = [_prefixed(w, prefix) for w in warnings]
+    return errors, warnings
 
-    # Convert dict to check fields
-    data = specimen.to_dict() if isinstance(specimen, Specimen) else specimen
 
-    # Known fields in WOLS schema (v1.2.0 adds _meta)
-    known_fields = SPECIMEN_FIELDS
+def _prefixed(error: ValidationError, prefix: str) -> ValidationError:
+    return ValidationError(
+        path=f"{prefix}{error.path}", code=error.code, message=error.message
+    )
 
+
+def _check_label(
+    data: dict[str, Any],
+    strict: bool,
+    id_mode: IdValidationMode,
+    extra_fields: frozenset[str],
+    errors: list[ValidationError],
+    warnings: list[ValidationError],
+) -> None:
     # Check for unknown fields
     for field in data:
-        if field not in known_fields:
+        if field not in SPECIMEN_FIELDS and field not in extra_fields:
             error = ValidationError(
                 path=field,
                 code="UNKNOWN_FIELD",
@@ -284,14 +339,33 @@ def validate_specimen(
             )
         )
 
-    # Optional field: version
-    if "version" in data:
+    # version: required by the 1.5 schema. A missing version is a warning
+    # so that partial dictionaries can still be checked.
+    if "version" not in data:
+        warnings.append(
+            ValidationError(
+                path="version",
+                code="MISSING_FIELD",
+                message="Field 'version' should name the WOLS version",
+            )
+        )
+    else:
         if not isinstance(data["version"], str):
             errors.append(
                 ValidationError(
                     path="version",
                     code="INVALID_TYPE",
                     message=f"Expected string, got {type(data['version']).__name__}",
+                )
+            )
+        elif not VERSION_RE.fullmatch(data["version"]):
+            errors.append(
+                ValidationError(
+                    path="version",
+                    code="INVALID_VERSION",
+                    message=f"Invalid version {data['version']!r}. Expected "
+                    "MAJOR.MINOR.PATCH with an optional pre-release suffix, "
+                    "such as 1.4.0 or 1.5.0-rc.1",
                 )
             )
         elif data["version"] not in SUPPORTED_VERSIONS:
@@ -331,15 +405,10 @@ def validate_specimen(
     if "strain" in data and not _is_encrypted_field(data["strain"]):
         strain = data["strain"]
         if isinstance(strain, dict):
-            if "name" not in strain:
-                errors.append(
-                    ValidationError(
-                        path="strain.name",
-                        code="REQUIRED_FIELD",
-                        message="Strain name is required",
-                    )
-                )
-            elif not isinstance(strain["name"], str) or not strain["name"].strip():
+            # WOLS 1.5: name is optional (a generation without a named strain).
+            if "name" in strain and (
+                not isinstance(strain["name"], str) or not strain["name"].strip()
+            ):
                 errors.append(
                     ValidationError(
                         path="strain.name",
@@ -349,6 +418,7 @@ def validate_specimen(
                 )
 
             _validate_strain_counters(strain, errors, warnings)
+            _validate_strain_v15(strain, data.get("derivedFrom"), errors, warnings)
         elif not isinstance(strain, str):
             errors.append(
                 ValidationError(
@@ -359,10 +429,20 @@ def validate_specimen(
             )
 
     # Optional field: created
-    if (
+    if isinstance(data.get("created"), str) and not is_rfc3339(data["created"]):
+        errors.append(
+            ValidationError(
+                path="created",
+                code="INVALID_VALUE",
+                message="Expected an RFC 3339 date-time with a time zone, "
+                f"such as 2026-11-10T09:00:00Z, got {data['created']!r}",
+            )
+        )
+    elif (
         "created" in data
         and data["created"] is not None
         and not isinstance(data["created"], str)
+        and not _is_encrypted_field(data["created"])
     ):
         errors.append(
             ValidationError(
@@ -388,6 +468,19 @@ def validate_specimen(
                     message=f"Expected string, got {type(data[field]).__name__}",
                 )
             )
+        elif field != "signature" and data.get(field) == "":
+            warnings.append(
+                ValidationError(
+                    path=field,
+                    code="INVALID_VALUE",
+                    message=f"'{field}' should not be empty; leave it out instead",
+                )
+            )
+
+    # WOLS 1.5 members, checked as the 1.5 JSON Schema defines them.
+    for field, spec in LABEL_V15_MEMBERS.items():
+        if field in data and not _is_encrypted_field(data[field]):
+            check(data[field], spec, field, errors)
 
     # Optional field: custom
     if (
@@ -403,11 +496,56 @@ def validate_specimen(
             )
         )
 
-    return ValidationResult(
-        valid=len(errors) == 0,
-        errors=errors,
-        warnings=warnings,
-    )
+
+def _validate_strain_v15(
+    strain: dict[str, Any],
+    derived_from: Any,
+    errors: list[ValidationError],
+    warnings: list[ValidationError],
+) -> None:
+    """``strain.accession``, ``strain.lineage`` and ``strain.source`` (1.5)."""
+    if "accession" in strain and not isinstance(strain["accession"], str):
+        errors.append(
+            ValidationError(
+                path="strain.accession",
+                code="INVALID_TYPE",
+                message=f"Expected string, got {type(strain['accession']).__name__}",
+            )
+        )
+    if "source" in strain and not isinstance(strain["source"], str):
+        warnings.append(
+            ValidationError(
+                path="strain.source",
+                code="INVALID_TYPE",
+                message=f"Expected string, got {type(strain['source']).__name__}",
+            )
+        )
+    if "lineage" not in strain:
+        return
+    lineage = strain["lineage"]
+    if not isinstance(lineage, str) or not SPECIMEN_ID_RE.match(lineage):
+        warnings.append(
+            ValidationError(
+                path="strain.lineage",
+                code="INVALID_VALUE",
+                message="strain.lineage should be the parent's specimen ID "
+                f"('{ID_PREFIX}:...'), got {lineage!r}",
+            )
+        )
+    if (
+        isinstance(derived_from, list)
+        and derived_from
+        and isinstance(derived_from[0], dict)
+        and lineage != derived_from[0].get("id")
+    ):
+        errors.append(
+            ValidationError(
+                path="strain.lineage",
+                code="INCONSISTENT_VALUE",
+                message=f"strain.lineage ({lineage!r}) must equal "
+                f"derivedFrom[0].id ({derived_from[0].get('id')!r})",
+            )
+        )
 
 
 def _validate_strain_counters(

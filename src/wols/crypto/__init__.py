@@ -12,6 +12,10 @@ Signatures (WOLS v1.4.0): :func:`sign_specimen` and
 :func:`sign_encrypted_url` add an Ed25519 signature token;
 :func:`verify_specimen` checks it against a caller-supplied trust store and
 returns a :class:`SignatureStatus`. Decoding and decryption never verify.
+From WOLS 1.5.0-rc.2, :func:`sign_compact_url` and :func:`verify_compact_url`
+sign compact URLs, and :func:`unwrap_wols_url` is the optional step that
+turns a ``web+wemush://`` or ``https://{host}/wols/...`` URL into the
+``wemush://v1/`` URL to verify.
 """
 
 from wols.crypto.decrypt import (
@@ -29,9 +33,12 @@ from wols.crypto.signature import (
     TrustedKey,
     TrustStore,
     VerificationResult,
+    sign_compact_url,
     sign_encrypted_url,
     sign_specimen,
     trust_store_from_key_set,
+    unwrap_wols_url,
+    verify_compact_url,
     verify_embedded,
     verify_encrypted_url,
     verify_specimen,
@@ -74,9 +81,12 @@ __all__ = [
     "encrypt_specimen_fields",
     "is_encrypted_url",
     "parse_encrypted_url",
+    "sign_compact_url",
     "sign_encrypted_url",
     "sign_specimen",
     "trust_store_from_key_set",
+    "unwrap_wols_url",
+    "verify_compact_url",
     "verify_embedded",
     "verify_encrypted_url",
     "verify_specimen",

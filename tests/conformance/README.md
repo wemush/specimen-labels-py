@@ -28,6 +28,24 @@ byte-identical to the `1.4.0-rc.1` copies from `a44dd3a`.
 `verifyNested` cases and `sign-nested-encrypted-url`, for 119 cases. The other
 vector files are byte-identical to the `02079df` copies.
 
+### WOLS 1.5 release candidates
+
+Four files target the 1.5 release candidates. They come from open-standard
+branch `spec/1.5.0-rc.2` at commit
+`df724c4ba6534e7f25e41f0ee439a4a635b2ed63`, the head of draft PRs #40
+(`1.5.0-rc.1`) and #41 (`1.5.0-rc.2`). Neither PR is merged yet, so these
+copies must be refreshed from `main` once they are.
+
+| File | `wolsVersion` | Cases |
+| ---- | ------------- | ----- |
+| `data-model.json` | `1.5.0-rc.2` | 38 `validate` and 5 `roundtrip` (`MUST`); 1 `roundtrip` (`SHOULD`) |
+| `bundle.json` | `1.5.0-rc.2` | 12 `validateBundle` (`MUST`) |
+| `compact.json` | `1.5.0-rc.2` | 42 `parseCompact` (`MUST`); 1 `parseCompact` (`SHOULD`) |
+| `compact-signatures.json` | `1.5.0-rc.2` | 36 `verify` and 18 `sign` (`MUST`); 6 `unwrap` (`SHOULD`) |
+
+The six older files are byte-identical at that commit, and `SHA256SUMS`
+lists all ten.
+
 `vectors/SHA256SUMS` is copied from upstream too. Check the vendored files
 with:
 
@@ -44,9 +62,13 @@ cd tests/conformance/vectors && shasum -a 256 -c SHA256SUMS
 | `derive` | `wols.crypto.derive_key(passphrase, salt, iterations)` |
 | `decrypt` | `wols.crypto.decrypt_specimen_bytes(url, secret)` (exact plaintext) and `decrypt_specimen(url, secret)`. A failure's `reason` must equal the `WolsEncryptionError.code`, upper-cased with `_` (for example, `id-mismatch` becomes `ID_MISMATCH`). |
 | `decryptFields` | `wols.crypto.decrypt_specimen_fields(specimen, secret)`, compared with `expected.specimen`. Failure reasons map to codes as for `decrypt`. |
-| `sign` | `wols.crypto.sign_specimen(label, seed, kid)` or `sign_encrypted_url(url, seed, kid)`, with the seed from `testKeys`. The token must match exactly. `signingInput` is checked with `wols.crypto.jcs.canonicalize`. A `refused` case must raise `WolsSignatureError`. |
-| `verify` | `wols.crypto.verify_specimen(label_or_url, trust_store)`, and also `verify_embedded` or `verify_encrypted_url`, against `input.trustStore` or else the file's `trustStore`. The status must match; for `valid`, so must the kid. For a `configError` case, building the `TrustedKey` must raise `WolsTrustStoreError`, and verifying with the unchecked entry must give `invalid`. |
+| `sign` | `wols.crypto.sign_specimen(label, seed, kid)`, `sign_encrypted_url(url, seed, kid)` or `sign_compact_url(url, seed, kid)`, by `form`, with the seed from the file's own `testKeys`. The token must match exactly. `signingInput` is checked with `wols.crypto.jcs.canonicalize`. A `refused` case must raise `WolsSignatureError`. |
+| `verify` | `wols.crypto.verify_specimen(label_or_url, trust_store)`, and also `verify_embedded`, `verify_encrypted_url` or `verify_compact_url` by `form`, against `input.trustStore` or else the file's own `trustStore` (`compact-signatures.json` has its own, with the short kid `w1`). The status must match; for `valid`, so must the kid and `VerificationResult.form`. For a `configError` case, building the `TrustedKey` must raise `WolsTrustStoreError`, and verifying with the unchecked entry must give `invalid`. |
 | `verifyNested` | Sign-then-encrypt. `verify_specimen(url, trust_store)` (and `verify_encrypted_url`) for `outer`; `decrypt_specimen_bytes(url, secret)` for the exact `plaintext`, and `decrypt_specimen`; then `verify_specimen` (and `verify_embedded`) on the decrypted text as received for `inner`. Each layer's status, and for `valid` its kid and signing input, must match. A failed decryption's `reason` maps to a code as for `decrypt`, and has no `inner`. |
+| `roundtrip` | `to_json(parse_specimen(text))`, compared with `expected.output` as JSON. |
+| `validateBundle` | `validate_bundle(input)`. `errorField` is matched against `ValidationError.path`. |
+| `parseCompact` | `parse_compact_url(url)`. The label shape is `SpecimenRef.to_dict()`, plus `unrecognized` (`SpecimenRef.unrecognized_params`) and `sig` (`SpecimenRef.signature`) when present. A `refused` case must raise `WolsParseError` whose code is the `reason` upper-cased with `_` (`missing-parameter` becomes `MISSING_PARAMETER`). A `warningField` case must emit a `WolsWarning`, and no other case may. |
+| `unwrap` | `unwrap_wols_url(text)` must equal `expected.url` (or `None`). A URL that unwraps must then verify as `valid` against the file's trust store. |
 | `loadKeySet` | `wols.crypto.trust_store_from_key_set(document, on_skip=...)`, with the document both parsed and as JSON text. A `configError` case must raise `WolsTrustStoreError`. Otherwise the sorted kids must equal `kids`, `on_skip` must be called `skipped` times, and `verify_specimen(label, store)` must give `status` (and `kid` for `valid`). |
 
 For `decrypt` cases with `sig`, the test also checks that

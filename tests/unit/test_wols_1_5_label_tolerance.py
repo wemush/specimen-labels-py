@@ -1,8 +1,7 @@
-"""WOLS 1.5 draft label tolerance.
-
-open-standard ``proposals/wols-1.5-data-model.md`` section 2:
+"""WOLS 1.5 label tolerance.
 
 - ``version`` allows a pre-release suffix (``1.5.0-rc.1``)
+- the 1.5 members are read into their own fields and written back
 - unknown top-level members are valid (a warning) and survive a re-save
 - ``_meta`` keys are camelCase on the wire; snake_case is still read
 """
@@ -31,7 +30,8 @@ LABEL_1_5: dict[str, Any] = {
     "version": "1.5.0-rc.1",
     "taxon": {"scientificName": "Pleurotus ostreatus", "rank": "species"},
     "lot": "TLC-2026-0042",
-    "derivedFrom": [{"id": "wemush:parent1", "relation": "inoculum"}],
+    "derivedFrom": [{"id": "wemush:parent1", "relation": "SPAWN_TO_BULK"}],
+    "x-acme-room": "B2",
 }
 
 
@@ -43,6 +43,11 @@ class TestPreReleaseVersion:
     def test_pre_release_version_is_valid(self) -> None:
         result = validate_specimen({**BASE, "version": "1.5.0-rc.1"})
         assert result.valid
+        assert result.warnings == []
+
+    def test_unknown_pre_release_version_is_a_warning(self) -> None:
+        result = validate_specimen({**BASE, "version": "1.6.0-beta.1"})
+        assert result.valid
         assert [w.code for w in result.warnings] == ["INVALID_VERSION"]
 
 
@@ -51,15 +56,14 @@ class TestUnknownMembers:
         result = validate_specimen(LABEL_1_5)
         assert result.valid
         unknown = sorted(w.path for w in result.warnings if w.code == "UNKNOWN_FIELD")
-        assert unknown == ["derivedFrom", "lot", "taxon"]
+        assert unknown == ["x-acme-room"]
 
     def test_parse_keeps_unknown_members(self) -> None:
         specimen = parse_specimen(json.dumps(LABEL_1_5))
-        assert specimen.unknown_members == {
-            "taxon": LABEL_1_5["taxon"],
-            "lot": LABEL_1_5["lot"],
-            "derivedFrom": LABEL_1_5["derivedFrom"],
-        }
+        assert specimen.unknown_members == {"x-acme-room": "B2"}
+        assert specimen.taxon == LABEL_1_5["taxon"]
+        assert specimen.lot == LABEL_1_5["lot"]
+        assert specimen.derived_from == LABEL_1_5["derivedFrom"]
 
     def test_re_save_writes_them_back(self) -> None:
         specimen = parse_specimen(json.dumps(LABEL_1_5))
@@ -127,7 +131,11 @@ class TestMetaWireCase:
         wire = {"source_id": "old", "sourceId": "new"}
         specimen = parse_specimen(json.dumps({**BASE, "_meta": wire}))
         assert specimen._meta == {"source_id": "new"}
-        assert json.loads(to_json(specimen))["_meta"] == {"sourceId": "new"}
+        # WOLS 1.5.0-rc.2: the snake_case member is kept unchanged.
+        assert json.loads(to_json(specimen))["_meta"] == {
+            "sourceId": "new",
+            "source_id": "old",
+        }
 
     def test_every_standard_key_is_renamed(self) -> None:
         specimen = Specimen(

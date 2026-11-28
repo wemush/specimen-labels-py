@@ -7,6 +7,103 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Passes every case in the WOLS 1.5 release-candidate conformance vectors
+(open-standard branch `spec/1.5.0-rc.2` at `df724c4`, draft PRs #40 and #41):
+`data-model.json`, `bundle.json`, `compact.json` and
+`compact-signatures.json`, `MUST` and `SHOULD` alike. New labels are still
+written as `1.4.0`.
+
+### Changed
+
+- **WOLS 1.5.0-rc.2: compact URLs use the Species Code Registry.** `to_compact_url()`
+  writes the registered code for `s` (for example `s=POSTR` for *Pleurotus
+  ostreatus*), the same codes the TypeScript library writes. `SPECIES_CODES` is
+  now the registry, so labels printed by either library scan the same way. A
+  species without a registered code is written as its percent-encoded name
+  instead of raising `WolsValidationError`.
+- **Compact URL parsing follows WOLS 1.5.0-rc.2, and is stricter.** A URL
+  that the specification says to reject now raises `WolsParseError` instead
+  of parsing with missing data:
+  - `s` is required, so a URL with no query is rejected (`MISSING_PARAMETER`).
+  - An unknown `st`, `ty`, `t` or `sg` value is rejected
+    (`INVALID_PARAMETER`); before, an unknown stage became `None`. Stage names
+    and codes are case-sensitive.
+  - A registered parameter given twice is rejected (`DUPLICATE_PARAMETER`);
+    before, the first one won.
+  - Only `v1` is accepted (`UNSUPPORTED_VERSION`), an encrypted URL is
+    pointed at `decrypt_specimen()` (`ENCRYPTED_URL`), and a malformed
+    percent escape is rejected (`INVALID_ENCODING`).
+  - A fragment, an empty ID or extra path segments after the ID are rejected.
+    The codes `INVALID_SCHEME` and `INVALID_PATH` are now `INVALID_URL`.
+  - The ID is percent-decoded (`+` stays a `+`), and values decode `+` as a
+    space. Empty values are kept instead of dropped.
+  - A `td` that isn't plain digits is ignored with a `WolsWarning`.
+- `to_compact_url()` percent-encodes the ID, so an ID with `/`, `?`, `&` or a
+  space survives the round trip.
+- **The 1.5 label members are real fields.** `taxon`, `form`, `derivedFrom`,
+  `condition`, `container` and `lot` are read into new `Specimen` fields
+  (`derived_from` for `derivedFrom`) instead of `unknown_members`, and
+  `strain.accession` into `Strain.accession`. Parsing a label where one of
+  them has the wrong JSON type, or `condition` isn't a known value, now
+  raises `WolsParseError`.
+- `Strain.name` is optional, as in WOLS 1.5 (a generation without a named
+  strain). `validate_specimen` no longer requires `strain.name`, and parsing
+  keeps unknown members inside `strain`.
+- A parsed label's `created` text is written back exactly as received, so
+  `2026-11-10T09:00:00Z` no longer comes back as `+00:00`.
+- `SUPPORTED_VERSIONS` adds `1.5.0-rc.1` and `1.5.0-rc.2`, so labels with
+  those versions validate without a version warning.
+- `validate_specimen` reports a `version` that isn't `MAJOR.MINOR.PATCH`
+  (with an optional pre-release suffix) as an error, and a missing `version`
+  as a warning. It warns, rather than fails, about older values the 1.5 rules
+  still allow: an empty `batch`, `organization` or `creator`, a
+  `strain.lineage` that isn't a specimen ID, and a non-string `strain.source`.
+- **Breaking:** `validate_specimen` reports a `created` that isn't an RFC 3339
+  date-time with a time zone (such as `2026-11-10`) as an error, as WOLS
+  1.5.0-rc.2 requires. 1.4.0 accepted it, and 1.5.0rc1 warned. An encrypted
+  `created` is accepted.
+- `strain.generation` accepts `P{n}` (such as `P2`) as well as `P` and `P1`.
+- When a label's `_meta` has both spellings of a key, the camelCase value is
+  read and the snake_case member is written back unchanged.
+- `verify_specimen` now verifies signed compact URLs. Before, a
+  `wemush://v1/{id}?...&sig=` URL was reported as `malformed`.
+- `VerificationResult` has three new fields: `form` (`embedded`,
+  `encrypted-url` or `compact-url`), and for a valid compact URL `params`
+  and `unrecognized_params`. Code that compares a result with a
+  `VerificationResult(...)` it built itself must set `form`.
+
+### Added
+
+- **WOLS 1.5 data model.** `validate_specimen` checks the new members as
+  the 1.5 JSON Schema defines them, with dot paths such as
+  `derivedFrom.0.relation`, and reports `strain.lineage` when it differs
+  from `derivedFrom[0].id`. `create_specimen` takes `taxon`, `form`,
+  `derived_from`, `condition`, `container` and `lot`. New enums:
+  `Condition`, `SpecimenForm`, `ContainerFormat` and `ParentRelation`.
+- **Records Bundle.** `validate_bundle()` checks a WOLS 1.5 Records Bundle:
+  its header, strains, recipes, observations and harvests, each specimen as
+  a label, and that `observations[].specimen`, `harvests[].specimen`,
+  `strainRef` and `recipeRef` resolve inside the bundle.
+- **Compact URL signatures (WOLS 1.5.0-rc.2).** `wols.crypto.sign_compact_url()`
+  signs a `wemush://v1/{id}?...` URL's exact bytes and appends `&sig=`, and
+  `verify_compact_url()` verifies one. `unwrap_wols_url()` turns a scanned
+  `web+wemush://` URL or `https://{host}/wols/...` handler URL into the URL
+  to verify. `to_compact_url()` still writes `web+wemush://` by default; pass
+  `scheme="wemush"` for a URL you will sign.
+- `SpecimenRef` gains `type`, `created`, `batch`, `strain`,
+  `unrecognized_params` (parameters outside the registry, kept as received),
+  `signature` (the raw `sig`, never verified by parsing), `specimen_id` and
+  `to_dict()`.
+- `REGISTERED_PARAMETERS` lists the compact URL parameter registry.
+
+- **Old labels still scan.** The two-letter codes earlier releases wrote (such
+  as `s=PO`) are kept in `LEGACY_SPECIES_CODES`. Parsing reads them with a
+  `WolsWarning`, and nothing writes them any more.
+- `SpecimenRef.species` holds the scientific name resolved from `s`, and
+  `resolve_species()` does that lookup on its own: a registered code, then a
+  legacy code, then the value as the species name.
+- The `st` parameter also accepts full stage names such as `COLONIZATION`.
+
 ## [1.5.0rc1] - 2026-11-27
 
 Pre-release (PEP 440 spelling of 1.5.0-rc.1). It still implements WOLS 1.4.0
