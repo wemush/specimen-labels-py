@@ -176,7 +176,7 @@ def create(
             console.print(f"[cyan]Version:[/cyan]  {specimen.version}")
             console.print(f"[cyan]Type:[/cyan]     {specimen.type.value}")
             console.print(f"[cyan]Species:[/cyan]  {specimen.species}")
-            if specimen.strain:
+            if specimen.strain and specimen.strain.name:
                 console.print(f"[cyan]Strain:[/cyan]   {specimen.strain.name}")
             if specimen.stage:
                 console.print(f"[cyan]Stage:[/cyan]    {specimen.stage.value}")
@@ -489,7 +489,7 @@ def scan(
                 console.print(f"[cyan]Version:[/cyan]  {result.version}")
                 console.print(f"[cyan]Type:[/cyan]     {result.type.value}")
                 console.print(f"[cyan]Species:[/cyan]  {result.species}")
-                if result.strain:
+                if result.strain and result.strain.name:
                     console.print(f"[cyan]Strain:[/cyan]   {result.strain.name}")
         else:
             # SpecimenRef (compact URL)

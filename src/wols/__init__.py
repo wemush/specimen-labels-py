@@ -1,6 +1,8 @@
 """WOLS - WeMush Open Labeling Standard.
 
-Python implementation of the WOLS v1.4.0 specification for specimen tracking.
+Python implementation of the WOLS v1.4.0 specification for specimen tracking,
+with the WOLS 1.5 release-candidate data model, compact URL rules and
+Records Bundle.
 
 Example:
     >>> from wols import create_specimen, SpecimenType, to_json
@@ -22,6 +24,8 @@ from wols.constants import (
 )
 
 # Core functions
+from wols.core.bundle import validate_bundle
+from wols.core.compact import REGISTERED_PARAMETERS, unwrap_wols_url
 from wols.core.create import create_specimen
 from wols.core.parse import (
     parse_compact_url,
@@ -80,7 +84,11 @@ from wols.migration import (
 # Models
 from wols.models.enums import (
     GROWTH_STAGES,
+    Condition,
+    ContainerFormat,
     GrowthStage,
+    ParentRelation,
+    SpecimenForm,
     SpecimenType,
     get_growth_stage_order,
     get_next_growth_stage,
@@ -105,15 +113,20 @@ __all__ = [
     "DEFAULT_HTTPS_BASE_URL",
     "DEFAULT_URL_SCHEME",
     "GROWTH_STAGES",
+    "REGISTERED_PARAMETERS",
     "SUPPORTED_VERSIONS",
     "WOLS_CONTEXT",
     "WOLS_TO_PLATFORM_MAP",
     "WOLS_VERSION",
+    "Condition",
+    "ContainerFormat",
     "GenerationFormat",
     "GrowthStage",
     "IdValidationMode",
+    "ParentRelation",
     "RuntimeEnvironment",
     "Specimen",
+    "SpecimenForm",
     "SpecimenMeta",
     "SpecimenRef",
     "SpecimenType",
@@ -160,6 +173,8 @@ __all__ = [
     "supports_typing_extensions",
     "to_compact_url",
     "to_json",
+    "unwrap_wols_url",
+    "validate_bundle",
     "validate_specimen",
     "validate_specimen_id",
 ]

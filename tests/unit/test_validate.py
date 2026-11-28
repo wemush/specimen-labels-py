@@ -208,19 +208,16 @@ class TestValidateSpecimen:
         )
 
     def test_strain_dict_missing_name(self) -> None:
-        """Test that strain dict without name is an error."""
+        """WOLS 1.5: a strain without a name (a generation alone) is valid."""
         data = {
             "id": "wemush:abc123def456ghijklmnopqr",
             "type": "CULTURE",
             "species": "Test",
-            "strain": {"generation": 2},
+            "strain": {"generation": "F2"},
         }
         result = validate_specimen(data)
-        assert result.valid is False
-        assert any(
-            e.code == "REQUIRED_FIELD" and e.path == "strain.name"
-            for e in result.errors
-        )
+        assert result.valid is True
+        assert not any(e.path == "strain.name" for e in result.errors)
 
     def test_strain_dict_empty_name(self) -> None:
         """Test that strain dict with empty name is an error."""

@@ -3,6 +3,7 @@
 Contains create, parse, validate, and serialize functions.
 """
 
+from wols.core.bundle import validate_bundle
 from wols.core.create import create_specimen
 from wols.core.parse import parse_compact_url, parse_specimen
 from wols.core.serialize import to_compact_url, to_json
@@ -14,5 +15,6 @@ __all__ = [
     "parse_specimen",
     "to_compact_url",
     "to_json",
+    "validate_bundle",
     "validate_specimen",
 ]

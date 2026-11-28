@@ -9,8 +9,9 @@ from typing import Any, overload
 from cuid2 import cuid_wrapper
 
 from wols.constants import ID_PREFIX, WOLS_VERSION
+from wols.core._schema import LABEL_V15_MEMBERS, check
 from wols.exceptions import WolsValidationError, WolsWarning
-from wols.models.enums import GrowthStage, SpecimenType
+from wols.models.enums import Condition, GrowthStage, SpecimenForm, SpecimenType
 from wols.models.specimen import Specimen, Strain, transfer_depth_below_clonal
 from wols.models.validation import ValidationError
 from wols.type_aliases import PRIMORDIA_TYPE_ALIAS, resolve_type_alias
@@ -31,6 +32,12 @@ def create_specimen(
     creator: str | None = None,
     custom: dict[str, Any] | None = None,
     created: datetime | None = None,
+    taxon: dict[str, Any] | None = None,
+    form: SpecimenForm | str | None = None,
+    derived_from: list[dict[str, Any]] | None = None,
+    condition: Condition | str | None = None,
+    container: dict[str, Any] | None = None,
+    lot: str | None = None,
     input_type: None = None,
 ) -> Specimen: ...
 
@@ -47,6 +54,12 @@ def create_specimen(
     creator: str | None = None,
     custom: dict[str, Any] | None = None,
     created: datetime | None = None,
+    taxon: dict[str, Any] | None = None,
+    form: SpecimenForm | str | None = None,
+    derived_from: list[dict[str, Any]] | None = None,
+    condition: Condition | str | None = None,
+    container: dict[str, Any] | None = None,
+    lot: str | None = None,
     input_type: SpecimenType | str,
 ) -> Specimen: ...
 
@@ -62,6 +75,12 @@ def create_specimen(
     creator: str | None = None,
     custom: dict[str, Any] | None = None,
     created: datetime | None = None,
+    taxon: dict[str, Any] | None = None,
+    form: SpecimenForm | str | None = None,
+    derived_from: list[dict[str, Any]] | None = None,
+    condition: Condition | str | None = None,
+    container: dict[str, Any] | None = None,
+    lot: str | None = None,
     input_type: SpecimenType | str | None = None,
 ) -> Specimen:
     """Create a new specimen with auto-generated CUID.
@@ -85,6 +104,17 @@ def create_specimen(
         creator: Creator identifier.
         custom: Custom namespace fields.
         created: Creation timestamp (defaults to current time).
+        taxon: Structured taxon, as the wire object (WOLS 1.5), such as
+            ``{"scientificName": "Pleurotus ostreatus", "rank": "species"}``.
+        form: The specific form within ``type`` (WOLS 1.5), such as
+            ``SpecimenForm.GRAIN_SPAWN`` or an ``x-`` extension.
+        derived_from: Every parent, as wire objects (WOLS 1.5), such as
+            ``[{"id": "wemush:...", "relation": "SPAWN_TO_BULK"}]``. When the
+            strain also has a ``lineage``, it must equal the first ``id``.
+        condition: Specimen condition (WOLS 1.5), such as ``ACTIVE``.
+        container: Container, as the wire object (WOLS 1.5), such as
+            ``{"format": "BAG", "capacity": {"value": 2.5, "unit": "kg"}}``.
+        lot: Traceability lot code (WOLS 1.5).
         input_type: Deprecated spelling of ``type``, kept for compatibility
             with 1.x callers. Pass one or the other, not both.
 
@@ -211,6 +241,41 @@ def create_specimen(
             )
         )
 
+    # WOLS 1.5 members, checked as the 1.5 JSON Schema defines them.
+    form_value = form.value if isinstance(form, SpecimenForm) else form
+    condition_value: Condition | None = None
+    if isinstance(condition, str) and not isinstance(condition, Condition):
+        try:
+            condition_value = Condition(condition.strip().upper())
+        except ValueError:
+            check(condition, LABEL_V15_MEMBERS["condition"], "condition", errors)
+    else:
+        condition_value = condition
+    for path, value in (
+        ("taxon", taxon),
+        ("form", form_value),
+        ("derivedFrom", derived_from),
+        ("container", container),
+        ("lot", lot),
+    ):
+        if value is not None:
+            check(value, LABEL_V15_MEMBERS[path], path, errors)
+    if (
+        strain_obj is not None
+        and strain_obj.lineage is not None
+        and derived_from
+        and isinstance(derived_from[0], dict)
+        and strain_obj.lineage != derived_from[0].get("id")
+    ):
+        errors.append(
+            ValidationError(
+                path="strain.lineage",
+                code="INCONSISTENT_VALUE",
+                message=f"strain.lineage ({strain_obj.lineage!r}) must equal "
+                f"derivedFrom[0].id ({derived_from[0].get('id')!r})",
+            )
+        )
+
     # Raise if validation errors
     if errors:
         raise WolsValidationError(
@@ -257,4 +322,10 @@ def create_specimen(
         organization=organization,
         creator=creator,
         custom=custom,
+        taxon=taxon,
+        form=form_value,
+        derived_from=derived_from,
+        condition=condition_value,
+        container=container,
+        lot=lot,
     )

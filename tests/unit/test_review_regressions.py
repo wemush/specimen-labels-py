@@ -41,7 +41,9 @@ class TestParseNeverLeaksBuiltinErrors:
         [
             {"strain": 5},
             {"strain": []},
-            {"strain": {"generation": "F1"}},
+            {"strain": {"accession": 5}},
+            {"condition": "WILTING"},
+            {"lot": 5},
             {"strain": {"name": 5}},
             {"strain": {"name": "a", "clonalGeneration": "3"}},
             {"strain": {"name": "a", "generation": -1}},

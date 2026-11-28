@@ -69,7 +69,12 @@ def to_compact_url(
 
     ``s`` is the species' code from the WOLS 1.5 Species Code Registry
     (:data:`~wols.constants.SPECIES_CODES`). A species without a registered
-    code is written by its full scientific name, percent-encoded.
+    code is written by its full scientific name, percent-encoded. The ID
+    suffix is percent-encoded as a single path segment.
+
+    To sign the URL, generate it with ``scheme="wemush"`` and pass it to
+    :func:`wols.crypto.sign_compact_url`: signed compact URLs always use
+    ``wemush://``.
 
     Example:
         >>> url = to_compact_url(specimen)
@@ -88,10 +93,13 @@ def to_compact_url(
     if isinstance(scheme, str):
         scheme = UrlScheme(scheme)
 
-    # Extract ID without prefix
+    # The ID suffix without the prefix, percent-encoded as one path segment
+    # (WOLS 1.5: the same rule as the encrypted format, so "/", "?", "#",
+    # "%", "+" and spaces can't change how the URL reads).
     specimen_id = specimen.id
     if specimen_id.startswith(f"{ID_PREFIX}:"):
         specimen_id = specimen_id[len(ID_PREFIX) + 1 :]
+    specimen_id = quote(specimen_id, safe="")
 
     # Build query parameters
     params: list[str] = []

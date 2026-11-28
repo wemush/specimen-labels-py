@@ -105,29 +105,26 @@ class TestParseCompactUrl:
         assert ref.id == "abc123"
         assert ref.species_code == "HERIN"
 
-    def test_parse_url_without_query(self) -> None:
-        """Test parsing URL without query parameters."""
-        ref = parse_compact_url("wemush://v1/abc123def456")
-        assert ref.id == "abc123def456"
-        assert ref.species_code is None
-
-    def test_parse_web_wemush_url_without_query(self) -> None:
-        """Test parsing web+wemush URL without query parameters."""
-        ref = parse_compact_url("web+wemush://v1/abc123def456")
-        assert ref.id == "abc123def456"
-        assert ref.species_code is None
+    @pytest.mark.parametrize(
+        "url", ["wemush://v1/abc123def456", "web+wemush://v1/abc123def456"]
+    )
+    def test_url_without_query_raises(self, url: str) -> None:
+        """WOLS 1.5.0-rc.2: ``s`` is required, so a URL with no query is refused."""
+        with pytest.raises(WolsParseError) as exc_info:
+            parse_compact_url(url)
+        assert exc_info.value.code == "MISSING_PARAMETER"
 
     def test_invalid_scheme_raises(self) -> None:
         """Test that invalid scheme raises parse error."""
         with pytest.raises(WolsParseError) as exc_info:
-            parse_compact_url("http://v1/abc123")
-        assert "INVALID_SCHEME" in str(exc_info.value)
+            parse_compact_url("http://v1/abc123?s=POSTR")
+        assert exc_info.value.code == "INVALID_URL"
 
     def test_missing_version_raises(self) -> None:
         """Test that missing v1 marker raises parse error."""
         with pytest.raises(WolsParseError) as exc_info:
-            parse_compact_url("wemush://abc123")
-        assert "INVALID_PATH" in str(exc_info.value)
+            parse_compact_url("wemush://abc123?s=POSTR")
+        assert exc_info.value.code == "INVALID_URL"
 
 
 class TestSpeciesCodeRegistry:
@@ -152,8 +149,9 @@ class TestSpeciesCodeRegistry:
         assert ref.species == "Morchella importuna"
 
     def test_no_species(self) -> None:
-        ref = parse_compact_url("wemush://v1/abc123")
-        assert ref.species is None
+        with pytest.raises(WolsParseError) as exc_info:
+            parse_compact_url("wemush://v1/abc123")
+        assert exc_info.value.code == "MISSING_PARAMETER"
 
     def test_resolve_species(self) -> None:
         assert resolve_species("LLENC") == "Lentinula edodes"
@@ -166,10 +164,12 @@ class TestSpeciesCodeRegistry:
         assert resolve_species("postr") == "postr"
 
     def test_full_stage_name_parses(self) -> None:
-        ref = parse_compact_url("wemush://v1/abc123?st=COLONIZATION")
+        ref = parse_compact_url("wemush://v1/abc123?s=POSTR&st=COLONIZATION")
         assert ref.stage == GrowthStage.COLONIZATION
 
-    def test_unknown_stage_is_none(self) -> None:
-        ref = parse_compact_url("wemush://v1/abc123?st=NOPE")
-        assert ref.stage is None
-        assert ref.params["st"] == "NOPE"
+    @pytest.mark.parametrize("stage", ["NOPE", "col", "colonization"])
+    def test_unknown_stage_is_refused(self, stage: str) -> None:
+        """WOLS 1.5.0-rc.2: ``st`` must be a stage name or code, as written."""
+        with pytest.raises(WolsParseError) as exc_info:
+            parse_compact_url(f"wemush://v1/abc123?s=POSTR&st={stage}")
+        assert exc_info.value.code == "INVALID_PARAMETER"

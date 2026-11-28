@@ -111,3 +111,90 @@ def get_previous_growth_stage(stage: GrowthStage) -> GrowthStage | None:
     """
     idx = GROWTH_STAGES.index(stage)
     return GROWTH_STAGES[idx - 1] if idx > 0 else None
+
+
+# ---------------------------------------------------------------------------
+# WOLS 1.5 data model (1.5.0-rc.1)
+# ---------------------------------------------------------------------------
+
+
+class Condition(str, Enum):
+    """Health or terminal state of a specimen, separate from its stage (v1.5.0).
+
+    Absent means ``ACTIVE``. Contamination and disposal are conditions, never
+    growth stages.
+    """
+
+    ACTIVE = "ACTIVE"
+    CONTAMINATED = "CONTAMINATED"
+    EXHAUSTED = "EXHAUSTED"
+    DISPOSED = "DISPOSED"
+    ARCHIVED = "ARCHIVED"
+
+
+class SpecimenForm(str, Enum):
+    """Registered values of ``form``: the specific form within ``type`` (v1.5.0).
+
+    ``form`` is an open vocabulary: any other value must start with ``x-``
+    and use only lowercase letters, digits and hyphens (``x-koji-rice``).
+    """
+
+    AGAR_PLATE = "AGAR_PLATE"
+    SLANT = "SLANT"
+    TISSUE_CULTURE = "TISSUE_CULTURE"
+    LIQUID_CULTURE = "LIQUID_CULTURE"
+    SPORE_SYRINGE = "SPORE_SYRINGE"
+    SPORE_PRINT = "SPORE_PRINT"
+    SPORE_SWAB = "SPORE_SWAB"
+    GRAIN_SPAWN = "GRAIN_SPAWN"
+    SAWDUST_SPAWN = "SAWDUST_SPAWN"
+    PLUG_SPAWN = "PLUG_SPAWN"
+    SUBSTRATE_BLOCK = "SUBSTRATE_BLOCK"
+    BULK_SUBSTRATE = "BULK_SUBSTRATE"
+    FRUITING_BLOCK = "FRUITING_BLOCK"
+    FRUITING_BAG = "FRUITING_BAG"
+    LOG = "LOG"
+    BED = "BED"
+    FRESH = "FRESH"
+    DRIED = "DRIED"
+    PROCESSED = "PROCESSED"
+    EXTRACT = "EXTRACT"
+    LIVE_SAMPLE = "LIVE_SAMPLE"
+
+
+class ContainerFormat(str, Enum):
+    """Registered values of ``container.format`` (v1.5.0).
+
+    Any other value must start with ``x-``, as for :class:`SpecimenForm`.
+    """
+
+    PETRI_DISH = "PETRI_DISH"
+    SLANT_TUBE = "SLANT_TUBE"
+    JAR = "JAR"
+    BOTTLE = "BOTTLE"
+    CARBOY = "CARBOY"
+    SYRINGE = "SYRINGE"
+    BAG = "BAG"
+    MONOTUB = "MONOTUB"
+    BUCKET = "BUCKET"
+    COMPRESSED_BLOCK = "COMPRESSED_BLOCK"
+    TRAY = "TRAY"
+    OTHER = "OTHER"
+
+
+class ParentRelation(str, Enum):
+    """How a parent in ``derivedFrom`` was used (v1.5.0).
+
+    ``SUBCULTURE`` increments ``clonalGeneration`` and ``transferDepth``;
+    ``EXPANSION`` and ``SPAWN_TO_BULK`` increment ``transferDepth`` only;
+    ``CROSS`` starts a new filial generation.
+    """
+
+    SUBCULTURE = "SUBCULTURE"
+    EXPANSION = "EXPANSION"
+    SPAWN_TO_BULK = "SPAWN_TO_BULK"
+    COMBINED = "COMBINED"
+    CLONE = "CLONE"
+    SPORE_ISOLATE = "SPORE_ISOLATE"
+    CROSS = "CROSS"
+    REPACK = "REPACK"

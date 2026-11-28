@@ -127,7 +127,9 @@ class TestVerifyEmbedded:
     def test_round_trip(self) -> None:
         signed = sign_specimen(LABEL_TEXT, SEED, KID)
         result = verify_specimen(signed, STORE)
-        assert result == VerificationResult(SignatureStatus.VALID, kid=KID)
+        assert result == VerificationResult(
+            SignatureStatus.VALID, kid=KID, form="embedded"
+        )
         assert result.valid
 
     def test_bytes_and_parsed_object(self) -> None:

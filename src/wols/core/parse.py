@@ -2,20 +2,22 @@
 
 from __future__ import annotations
 
-import contextlib
 import json
+import re
 import warnings
-from urllib.parse import parse_qs, urlparse
+from collections.abc import Callable
+from datetime import UTC, datetime
 
 from wols.constants import (
     LEGACY_SPECIES_CODES,
     SPECIES_CODES,
     STAGE_CODES,
-    VALID_URL_SCHEMES,
 )
+from wols.core.compact import REGISTERED_PARAMETERS, InvalidEncoding, percent_decode
 from wols.exceptions import WolsParseError, WolsWarning
-from wols.models.enums import GrowthStage
-from wols.models.specimen import Specimen, SpecimenRef
+from wols.generation import is_valid_generation
+from wols.models.enums import GrowthStage, SpecimenType
+from wols.models.specimen import Specimen, SpecimenRef, Strain
 
 
 def parse_specimen(json_str: str) -> Specimen:
@@ -74,20 +76,43 @@ def parse_specimen(json_str: str) -> Specimen:
 def parse_compact_url(url: str) -> SpecimenRef:
     """Parse a compact WOLS URL into a SpecimenRef.
 
-    Decoders accept every supported scheme, regardless of which one
-    :func:`~wols.to_compact_url` emits by default:
-        - wemush://v1/{id}?s={species}&st={stage} (native app, spec form)
-        - web+wemush://v1/{id}?s={species}&st={stage} (PWA)
-        - https://domain/path/v1/{id}?s={species}&st={stage} (web)
+    Follows the WOLS 1.5 compact URL rules. Accepted forms:
+        - ``wemush://v1/{id}?s={species}&...`` (native app, spec form)
+        - ``web+wemush://v1/{id}?s={species}&...`` (PWA)
+        - ``https://{host}/{path}/v1/{id}?s={species}&...`` (web; the
+          specification lets decoders accept other forms like this one)
+
+    The ID is the single path segment after ``v1/``, percent-decoded as
+    UTF-8 with ``+`` as a literal character. Parameter values are
+    percent-decoded with ``+`` as a space. ``s`` is required. The registered
+    parameters are ``s``, ``ty``, ``st``, ``t``, ``b``, ``sn``, ``sg``,
+    ``td`` and ``sig``; any other parameter is kept in
+    ``unrecognized_params`` and never rejects the URL. ``sig`` is kept as
+    written and never verified.
+
+    Warnings (:class:`~wols.exceptions.WolsWarning`): a legacy two-letter
+    species code, and a ``td`` that isn't plain digits (which is ignored).
 
     Args:
         url: Compact URL in any supported scheme.
 
     Returns:
-        SpecimenRef with extracted parameters.
+        SpecimenRef with the decoded parameters.
 
     Raises:
-        WolsParseError: If URL format is invalid.
+        WolsParseError: With ``code`` set to one of:
+
+            - ``INVALID_URL``: not a compact URL (scheme, missing or extra
+              path segments, fragment).
+            - ``UNSUPPORTED_VERSION``: a version segment other than ``v1``.
+            - ``ENCRYPTED_URL``: a ``wemush://v1/encrypted/{id}`` URL;
+              decrypt it with :func:`wols.crypto.decrypt_specimen`.
+            - ``INVALID_ENCODING``: a malformed percent escape, or one that
+              isn't valid UTF-8, in the ID or any value.
+            - ``DUPLICATE_PARAMETER``: a registered parameter appears twice.
+            - ``MISSING_PARAMETER``: no ``s``, or an empty one.
+            - ``INVALID_PARAMETER``: a ``ty``, ``st``, ``t`` or ``sg`` value
+              outside its syntax.
 
     Example:
         >>> ref = parse_compact_url("web+wemush://v1/abc123?s=POSTR&st=COL")
@@ -102,88 +127,202 @@ def parse_compact_url(url: str) -> SpecimenRef:
         >>> print(ref.id)
         'abc123'
     """
-    try:
-        parsed = urlparse(url)
-    except Exception as e:
+
+    def refuse(code: str, message: str) -> WolsParseError:
+        return WolsParseError(message=message, code=code, input=url)
+
+    if not isinstance(url, str):
         raise WolsParseError(
-            message=f"Invalid URL format: {e}",
+            message=f"Expected a URL string, got {type(url).__name__}",
             code="INVALID_URL",
-            input=url,
-        ) from e
-
-    # Validate scheme
-    if parsed.scheme not in VALID_URL_SCHEMES:
-        valid_schemes = ", ".join(sorted(VALID_URL_SCHEMES))
-        raise WolsParseError(
-            message=f"Invalid URL scheme: expected one of "
-            f"[{valid_schemes}], got '{parsed.scheme}'",
-            code="INVALID_SCHEME",
-            input=url,
         )
+    if "#" in url:
+        raise refuse("INVALID_URL", "Compact URL must not have a fragment")
 
-    # Parse path based on scheme type
-    # HTTPS: path is like /s/v1/{id} or /specimen/v1/{id}
-    # Custom schemes: netloc contains the path start (v1/...)
-    path = parsed.path if parsed.scheme == "https" else parsed.netloc + parsed.path
+    path, _, query = url.partition("?")
+    segment = _compact_id_segment(path, refuse)
 
-    path_parts = [p for p in path.split("/") if p]
-
-    # Find the version marker (v1) in the path
     try:
-        v1_index = path_parts.index("v1")
-    except ValueError:
-        raise WolsParseError(
-            message=f"Invalid URL path: missing 'v1' version marker in '{path}'",
-            code="INVALID_PATH",
-            input=url,
-        ) from None
+        specimen_id = percent_decode(segment)
+    except InvalidEncoding as e:
+        raise refuse("INVALID_ENCODING", f"Compact URL ID: {e}") from None
 
-    # Specimen ID should follow v1
-    if len(path_parts) <= v1_index + 1:
-        raise WolsParseError(
-            message=f"Invalid URL path: missing specimen ID after 'v1' in '{path}'",
-            code="INVALID_PATH",
-            input=url,
-        )
+    registered: dict[str, str] = {}
+    params: dict[str, str] = {}
+    unrecognized: dict[str, str] = {}
+    raw_sig: str | None = None
+    for pair in query.split("&") if query else ():
+        if pair == "":
+            continue
+        name, has_value, raw_value = pair.partition("=")
+        try:
+            value = percent_decode(raw_value, plus_as_space=True)
+        except InvalidEncoding as e:
+            raise refuse(
+                "INVALID_ENCODING", f"Compact URL parameter {name!r}: {e}"
+            ) from None
+        if name in _REGISTERED:
+            if name in registered:
+                raise refuse(
+                    "DUPLICATE_PARAMETER",
+                    f"Compact URL parameter {name!r} appears more than once",
+                )
+            registered[name] = value
+            if name == "sig":
+                raw_sig = raw_value if has_value else ""
+        else:
+            unrecognized.setdefault(name, value)
+        params.setdefault(name, value)
 
-    specimen_id = path_parts[v1_index + 1]
+    species_code = registered.get("s")
+    if not species_code:
+        raise refuse("MISSING_PARAMETER", "Compact URL has no species parameter 's'")
+    # A registered code, then a legacy two-letter code, then the name itself.
+    species = resolve_species(species_code, stacklevel=3)
 
-    # wemush://v1/encrypted/{id} is the encrypted format, not a compact URL
-    if specimen_id == "encrypted" and len(path_parts) > v1_index + 2:
-        raise WolsParseError(
-            message="This is an encrypted WOLS URL; decrypt it with "
-            "wols.crypto.decrypt_specimen()",
-            code="ENCRYPTED_URL",
-            input=url,
-        )
+    specimen_type: SpecimenType | None = None
+    if "ty" in registered:
+        try:
+            specimen_type = SpecimenType(registered["ty"])
+        except ValueError:
+            raise refuse(
+                "INVALID_PARAMETER",
+                f"Compact URL 'ty' must be a canonical specimen type, got "
+                f"{registered['ty']!r}",
+            ) from None
 
-    # Parse query parameters
-    query_params: dict[str, str] = {}
-    if parsed.query:
-        raw_params = parse_qs(parsed.query)
-        # Flatten single-value lists (always take first value)
-        query_params = {k: v[0] for k, v in raw_params.items()}
-
-    # Extract species code, and resolve it as WOLS 1.5 decodes `s`: a
-    # registered code, then a legacy two-letter code, then the name as written.
-    species_code = query_params.get("s")
-    species = resolve_species(species_code, stacklevel=3) if species_code else None
-
-    # Extract and convert stage: a three-letter code or a full stage name
     stage: GrowthStage | None = None
-    stage_code = query_params.get("st")
-    if stage_code:
-        stage_value = STAGE_CODES.get(stage_code.upper(), stage_code.upper())
-        with contextlib.suppress(ValueError):
+    if "st" in registered:
+        stage_value = STAGE_CODES.get(registered["st"], registered["st"])
+        try:
             stage = GrowthStage(stage_value)
+        except ValueError:
+            raise refuse(
+                "INVALID_PARAMETER",
+                "Compact URL 'st' must be a growth stage or its 3-letter code, "
+                f"got {registered['st']!r}",
+            ) from None
+
+    created: datetime | None = None
+    if "t" in registered:
+        created = _unix_time(registered["t"], refuse)
+
+    generation = registered.get("sg")
+    if generation is not None and not (
+        generation == generation.strip() and is_valid_generation(generation)
+    ):
+        raise refuse(
+            "INVALID_PARAMETER",
+            f"Compact URL 'sg' is not a generation (P, F1, G2, 3), got {generation!r}",
+        )
+
+    transfer_depth: int | None = None
+    if "td" in registered:
+        if _DIGITS.fullmatch(registered["td"]):
+            transfer_depth = int(registered["td"])
+        else:
+            warnings.warn(
+                f"Compact URL parameter 'td' is not plain decimal digits "
+                f"({registered['td']!r}); it is ignored.",
+                WolsWarning,
+                stacklevel=2,
+            )
+
+    strain: Strain | None = None
+    if "sn" in registered or generation is not None or transfer_depth is not None:
+        strain = Strain(
+            name=registered.get("sn"),
+            generation=generation,
+            transfer_depth=transfer_depth,
+        )
 
     return SpecimenRef(
         id=specimen_id,
         species_code=species_code,
         stage=stage,
-        params=query_params,
+        params=params,
         species=species,
+        type=specimen_type,
+        created=created,
+        batch=registered.get("b"),
+        strain=strain,
+        unrecognized_params=unrecognized,
+        signature=raw_sig,
     )
+
+
+_REGISTERED = frozenset(REGISTERED_PARAMETERS)
+_DIGITS = re.compile(r"[0-9]+")
+_VERSION_RE = re.compile(r"v[0-9]+")
+_CUSTOM_SCHEMES = ("wemush://", "web+wemush://")
+
+
+def _compact_id_segment(path: str, refuse: Callable[[str, str], Exception]) -> str:
+    """The raw ID segment of a compact URL (everything before ``?``)."""
+    lowered = path[:16].lower()
+    scheme = next((s for s in _CUSTOM_SCHEMES if lowered.startswith(s)), None)
+    if scheme is not None:
+        segments = path[len(scheme) :].split("/")
+        if len(segments) < 2 or not _VERSION_RE.fullmatch(segments[0]):
+            raise refuse(
+                "INVALID_URL",
+                f"Compact URL must be {scheme}v1/{{id}}, got {path!r}",
+            )
+    elif lowered.startswith("https://"):
+        # https://{host}/{path}/v1/{id}: the version is the second-to-last
+        # segment. The host and any base path before it are not checked.
+        segments = path[len("https://") :].split("/")[1:]
+        if (
+            len(segments) >= 3
+            and _VERSION_RE.fullmatch(segments[-3])
+            and segments[-2] == "encrypted"
+        ):
+            segments = segments[-3:]
+        elif len(segments) >= 2 and _VERSION_RE.fullmatch(segments[-2]):
+            segments = segments[-2:]
+        else:
+            raise refuse(
+                "INVALID_URL",
+                f"HTTPS compact URL must end in /v1/{{id}}, got {path!r}",
+            )
+    else:
+        raise refuse(
+            "INVALID_URL",
+            "Invalid URL scheme: expected wemush://, web+wemush:// or https://",
+        )
+
+    if segments[0] != "v1":
+        raise refuse(
+            "UNSUPPORTED_VERSION",
+            f"Unsupported compact URL version {segments[0]!r}; only v1 is defined",
+        )
+    if segments[1] == "encrypted" and len(segments) > 2:
+        raise refuse(
+            "ENCRYPTED_URL",
+            "This is an encrypted WOLS URL; decrypt it with "
+            "wols.crypto.decrypt_specimen()",
+        )
+    if len(segments) != 2 or segments[1] == "":
+        raise refuse(
+            "INVALID_URL",
+            f"Compact URL needs exactly one ID segment after v1/, got {path!r}",
+        )
+    return segments[1]
+
+
+def _unix_time(value: str, refuse: Callable[[str, str], Exception]) -> datetime:
+    """``t``: Unix seconds as plain decimal digits, in UTC."""
+    if not _DIGITS.fullmatch(value):
+        raise refuse(
+            "INVALID_PARAMETER",
+            f"Compact URL 't' must be Unix seconds as decimal digits, got {value!r}",
+        )
+    try:
+        return datetime.fromtimestamp(int(value), UTC)
+    except (OverflowError, OSError, ValueError):
+        raise refuse(
+            "INVALID_PARAMETER", f"Compact URL 't' is out of range: {value!r}"
+        ) from None
 
 
 def resolve_species(value: str, *, stacklevel: int = 2) -> str:

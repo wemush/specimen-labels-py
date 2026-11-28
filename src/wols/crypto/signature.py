@@ -1,16 +1,18 @@
-"""Ed25519 label signatures (WOLS v1.4.0).
+"""Ed25519 label signatures (WOLS v1.4.0, compact URLs from v1.5.0).
 
 Optional module - requires: pip install wols[crypto]
 
 A signature lets a verifier check that a label's bytes were signed with a
 private key the verifier already trusts, and that they haven't changed
-since. Two forms can be signed:
+since. Three forms can be signed:
 
 - **Embedded labels** (JSON-LD) carry the token in the top-level
   ``signature`` member. The signed body is the RFC 8785 (JCS) canonical form
   of the label as parsed, without that member.
 - **Encrypted URLs** carry the token in a final ``sig`` parameter. The
   signed body is the exact URL text before ``&sig=``.
+- **Compact URLs** (WOLS 1.5.0-rc.2) are signed like encrypted URLs, under
+  the form tag ``compact-url``, with extra rules for their parameters.
 
 The token is ``{kid}.{signature}``: a key identifier and the 64-byte Ed25519
 signature in unpadded base64url. Ed25519 signs::
@@ -26,12 +28,21 @@ from __future__ import annotations
 
 import base64
 import binascii
+import dataclasses
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
+from wols.core.compact import (
+    COMPACT_URL_PREFIX,
+    REGISTERED_PARAMETERS,
+    InvalidEncoding,
+    is_compact_shape,
+    percent_decode,
+    unwrap_wols_url,
+)
 from wols.crypto.jcs import CanonicalizationError, canonicalize, parse_json
 from wols.exceptions import WolsSignatureError, WolsTrustStoreError
 
@@ -44,6 +55,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ED25519",
+    "FORM_COMPACT_URL",
     "FORM_EMBEDDED",
     "FORM_ENCRYPTED_URL",
     "SIGNING_DOMAIN",
@@ -51,9 +63,12 @@ __all__ = [
     "TrustStore",
     "TrustedKey",
     "VerificationResult",
+    "sign_compact_url",
     "sign_encrypted_url",
     "sign_specimen",
     "trust_store_from_key_set",
+    "unwrap_wols_url",
+    "verify_compact_url",
     "verify_embedded",
     "verify_encrypted_url",
     "verify_specimen",
@@ -64,6 +79,8 @@ SIGNING_DOMAIN = "WOLS-SIG-v1"
 
 FORM_EMBEDDED = "embedded"
 FORM_ENCRYPTED_URL = "encrypted-url"
+FORM_COMPACT_URL = "compact-url"
+"""The form tag for compact URLs (WOLS 1.5.0-rc.2)."""
 ED25519 = "Ed25519"
 """The only signature algorithm in WOLS 1.4.0."""
 
@@ -79,6 +96,8 @@ _ED25519_L = 2**252 + 27742317777372353535851937790883648493
 
 # Matched with fullmatch, so a trailing newline doesn't slip through.
 _KID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+_PARAM_NAME_RE = re.compile(r"[A-Za-z0-9_-]+")
+_REGISTERED = frozenset(REGISTERED_PARAMETERS)
 _TOKEN_RE = re.compile(r"([A-Za-z0-9_-]{1,64})\.([A-Za-z0-9_-]{86})")
 _SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:")
 
@@ -118,11 +137,25 @@ class VerificationResult:
             for ``UNKNOWN_KID`` and ``INVALID`` for diagnostics. ``None`` for
             ``UNSIGNED`` and ``MALFORMED``.
         reason: Human-readable detail for every status except ``VALID``.
+        form: The form that was verified: ``"embedded"``,
+            ``"encrypted-url"`` or ``"compact-url"`` (WOLS 1.5). ``None``
+            only when the input couldn't be read at all.
+        params: For a ``VALID`` compact URL, every parameter of the signed
+            body (``sig`` excluded), percent-decoded by the compact URL
+            rules (``+`` is a space). Display these values, not a second
+            parse of the URL. ``None`` otherwise.
+        unrecognized_params: For a ``VALID`` compact URL, the names in
+            ``params`` that aren't registered parameters. Their bytes are
+            signed, but this library doesn't know what they mean, so don't
+            present them as verified facts.
     """
 
     status: SignatureStatus
     kid: str | None = None
     reason: str | None = None
+    form: str | None = None
+    params: Mapping[str, str] | None = dataclasses.field(default=None, hash=False)
+    unrecognized_params: tuple[str, ...] = ()
 
     @property
     def valid(self) -> bool:
@@ -271,8 +304,8 @@ def _param_name(param: str) -> str:
     return param.split("=", 1)[0]
 
 
-def _check_url_text(url: str) -> None:
-    """The rules a signed URL and an unsigned URL to be signed share."""
+def _check_url_chars(url: str) -> None:
+    """Printable ASCII and no fragment: the rules every signed URL shares."""
     if any(not 0x21 <= ord(c) <= 0x7E for c in url):
         raise _Malformed(
             "URL contains a character outside U+0021..U+007E; spaces and "
@@ -280,12 +313,53 @@ def _check_url_text(url: str) -> None:
         )
     if "#" in url:
         raise _Malformed("URL has a fragment")
+
+
+def _check_url_text(url: str) -> None:
+    """The rules a signed URL and an unsigned URL to be signed share."""
+    _check_url_chars(url)
     if not url.startswith(ENCRYPTED_URL_PREFIX):
         raise _Malformed(f"URL doesn't start with {ENCRYPTED_URL_PREFIX}")
 
 
-def _split_signed_url(url: str) -> tuple[str, str] | None:
-    """Return ``(body, token)``, or None when the URL has no ``sig``.
+def _check_compact_parts(url: str, params: list[str]) -> None:
+    """The extra rules for a signed compact URL (WOLS 1.5.0-rc.2).
+
+    ``params`` are the parameters before ``sig``, exactly as received.
+    """
+    if not is_compact_shape(url):
+        raise _Malformed(
+            f"URL isn't a signable compact URL: {COMPACT_URL_PREFIX} followed "
+            "by one path segment"
+        )
+    seen: set[str] = set()
+    for param in params:
+        if param == "":
+            raise _Malformed("compact URL has an empty parameter")
+        name, _, value = param.partition("=")
+        if not _PARAM_NAME_RE.fullmatch(name):
+            raise _Malformed(
+                f"compact URL parameter name {name!r} must be letters, digits, "
+                "'_' or '-' (unescaped)"
+            )
+        if name in seen:
+            raise _Malformed(f"compact URL parameter {name!r} appears more than once")
+        seen.add(name)
+        try:
+            percent_decode(value)
+        except InvalidEncoding as e:
+            raise _Malformed(f"compact URL parameter {name!r}: {e}") from None
+    segment = url[len(COMPACT_URL_PREFIX) :].split("?", 1)[0]
+    try:
+        percent_decode(segment)
+    except InvalidEncoding as e:
+        raise _Malformed(f"compact URL ID segment: {e}") from None
+
+
+def _split_signed_url(
+    url: str, *, compact: bool = False
+) -> tuple[str, str, list[str]] | None:
+    """Return ``(body, token, params before sig)``, or None without ``sig``.
 
     Raises:
         _Malformed: When the URL breaks a rule.
@@ -294,7 +368,10 @@ def _split_signed_url(url: str) -> tuple[str, str] | None:
     names = [_param_name(p) for p in params]
     if "sig" not in names:
         return None
-    _check_url_text(url)
+    if compact:
+        _check_url_chars(url)
+    else:
+        _check_url_text(url)
     if names.count("sig") != 1:
         raise _Malformed("URL has more than one 'sig' parameter")
     if names[-1] != "sig":
@@ -304,8 +381,10 @@ def _split_signed_url(url: str) -> tuple[str, str] | None:
     last = params[-1]
     if not last.startswith("sig="):
         raise _Malformed("'sig' parameter has no value")
+    if compact:
+        _check_compact_parts(url, params[:-1])
     token = last[len("sig=") :]
-    return url[: len(url) - len("&sig=") - len(token)], token
+    return url[: len(url) - len("&sig=") - len(token)], token, params[:-1]
 
 
 # ---------------------------------------------------------------------------
@@ -540,13 +619,74 @@ def sign_encrypted_url(
     return f"{url}&sig={kid}.{_b64url(signature)}"
 
 
+def sign_compact_url(
+    url: str,
+    private_key: bytes | Ed25519PrivateKey,
+    kid: str,
+) -> str:
+    """Sign a compact URL and return it with ``&sig={token}`` appended.
+
+    WOLS 1.5.0-rc.2. The URL is signed byte for byte, exactly as it will be
+    printed, under the form tag ``compact-url``. Nothing is decoded,
+    re-encoded or reordered. Signed compact URLs always start with
+    ``wemush://v1/``: build the URL with
+    ``to_compact_url(specimen, scheme="wemush")``.
+
+    Kids for compact labels should be short (1 to 3 characters, such as
+    ``w1``), because the kid is printed on every label.
+
+    Args:
+        url: An unsigned ``wemush://v1/{id}?...`` URL, as it will be printed.
+        private_key: The 32-byte Ed25519 seed, or an ``Ed25519PrivateKey``.
+        kid: The key identifier, 1-64 characters from ``[A-Za-z0-9_-]``.
+
+    Returns:
+        The signed URL.
+
+    Raises:
+        WolsSignatureError: ``INVALID_KID`` or ``INVALID_KEY`` for a bad kid
+            or key; ``ALREADY_SIGNED`` if the URL has a ``sig`` parameter;
+            ``INVALID_URL`` if it has no query or an empty one, isn't
+            printable ASCII, has a fragment, isn't ``wemush://v1/`` plus one
+            path segment, has an empty, repeated or escaped parameter name,
+            or has a malformed percent escape.
+    """
+    kid = _check_kid(kid)
+    key = _private_key(private_key)
+    if not isinstance(url, str):
+        raise WolsSignatureError(message="url must be a str", code="INVALID_URL")
+    q = url.find("?")
+    if q == -1 or q == len(url) - 1:
+        raise WolsSignatureError(
+            message="Compact URL has no query parameters", code="INVALID_URL"
+        )
+    params = url[q + 1 :].split("&")
+    if "sig" in (_param_name(p) for p in params):
+        raise WolsSignatureError(
+            message="URL already has a 'sig' parameter; remove it to re-sign",
+            code="ALREADY_SIGNED",
+        )
+    try:
+        _check_url_chars(url)
+        _check_compact_parts(url, params)
+    except _Malformed as e:
+        raise WolsSignatureError(message=str(e), code="INVALID_URL") from e
+
+    signature = key.sign(_signing_input(FORM_COMPACT_URL, kid, url.encode("ascii")))
+    return f"{url}&sig={kid}.{_b64url(signature)}"
+
+
 # ---------------------------------------------------------------------------
 # Verification
 # ---------------------------------------------------------------------------
 
 
-def _malformed(reason: str) -> VerificationResult:
-    return VerificationResult(SignatureStatus.MALFORMED, reason=reason)
+def _malformed(reason: str, form: str | None = None) -> VerificationResult:
+    return VerificationResult(SignatureStatus.MALFORMED, reason=reason, form=form)
+
+
+def _with_form(result: VerificationResult, form: str) -> VerificationResult:
+    return dataclasses.replace(result, form=form)
 
 
 def verify_embedded(
@@ -575,6 +715,12 @@ def verify_embedded(
     Returns:
         The verification result. Never raises for a bad signature.
     """
+    return _with_form(_verify_embedded(label, trust_store), FORM_EMBEDDED)
+
+
+def _verify_embedded(
+    label: str | bytes | Mapping[str, Any], trust_store: TrustStore
+) -> VerificationResult:
     duplicate_names = False
     obj: Any
     if isinstance(label, str | bytes):
@@ -622,6 +768,10 @@ def verify_encrypted_url(url: str, trust_store: TrustStore) -> VerificationResul
     Returns:
         The verification result. Never raises for a bad signature.
     """
+    return _with_form(_verify_encrypted_url(url, trust_store), FORM_ENCRYPTED_URL)
+
+
+def _verify_encrypted_url(url: str, trust_store: TrustStore) -> VerificationResult:
     if not isinstance(url, str):
         return _malformed("URL is not a str")
     try:
@@ -630,7 +780,7 @@ def verify_encrypted_url(url: str, trust_store: TrustStore) -> VerificationResul
             return VerificationResult(
                 SignatureStatus.UNSIGNED, reason="URL has no 'sig' parameter"
             )
-        body, token = split
+        body, token, _ = split
         kid, signature = _parse_token(token)
     except _Malformed as e:
         return _malformed(str(e))
@@ -638,16 +788,82 @@ def verify_encrypted_url(url: str, trust_store: TrustStore) -> VerificationResul
     return _verify_signature(kid, signature, message, trust_store)
 
 
+def verify_compact_url(url: str, trust_store: TrustStore) -> VerificationResult:
+    """Verify the signature of a compact URL (WOLS 1.5.0-rc.2).
+
+    The body is the URL exactly as received, up to its final ``&sig=``
+    parameter, signed under the form tag ``compact-url``. Nothing is decoded,
+    re-encoded or reordered, so pass the URL as scanned. Only
+    ``wemush://v1/{id}?...`` URLs can be signed: use
+    :func:`unwrap_wols_url` first for ``web+wemush://`` or an
+    ``https://{host}/wols/...`` handler URL.
+
+    A signed URL is ``malformed`` when, besides the encrypted URL rules
+    (printable ASCII, no fragment, exactly one ``sig``, last and not alone),
+    it isn't ``wemush://v1/`` plus one path segment, has an empty parameter,
+    repeats a parameter name, has a name outside ``[A-Za-z0-9_-]``, or has
+    a malformed or non-UTF-8 percent escape in the ID or a value.
+
+    A ``VALID`` result carries ``params``, the signed parameters decoded by
+    the compact URL rules, and ``unrecognized_params``, the names among them
+    that aren't registered. Display those values rather than a second parse.
+    The signature covers only the printed parameters: data fetched from a
+    resolver by ID is not verified by it.
+
+    Args:
+        url: The compact URL, as scanned.
+        trust_store: Maps each trusted kid to its key.
+
+    Returns:
+        The verification result. Never raises for a bad signature.
+    """
+    return _with_form(_verify_compact_url(url, trust_store), FORM_COMPACT_URL)
+
+
+def _verify_compact_url(url: str, trust_store: TrustStore) -> VerificationResult:
+    if not isinstance(url, str):
+        return _malformed("URL is not a str")
+    try:
+        split = _split_signed_url(url, compact=True)
+        if split is None:
+            return VerificationResult(
+                SignatureStatus.UNSIGNED, reason="URL has no 'sig' parameter"
+            )
+        body, token, params = split
+        kid, signature = _parse_token(token)
+    except _Malformed as e:
+        return _malformed(str(e))
+    message = _signing_input(FORM_COMPACT_URL, kid, body.encode("ascii"))
+    result = _verify_signature(kid, signature, message, trust_store)
+    if result.status is not SignatureStatus.VALID:
+        return result
+    # The values from the parse that was verified: _check_compact_parts
+    # already decoded each one, so this can't fail.
+    decoded: dict[str, str] = {}
+    for param in params:
+        name, _, value = param.partition("=")
+        decoded[name] = percent_decode(value, plus_as_space=True)
+    return dataclasses.replace(
+        result,
+        params=decoded,
+        unrecognized_params=tuple(n for n in decoded if n not in _REGISTERED),
+    )
+
+
 def verify_specimen(
     label: str | bytes | Mapping[str, Any], trust_store: TrustStore
 ) -> VerificationResult:
     """Verify a label's signature against a trust store.
 
-    Accepts embedded label text, the raw parsed JSON object, or an encrypted
-    URL. Text that starts with a URL scheme (such as ``wemush:``) is
-    verified as an encrypted URL with :func:`verify_encrypted_url`;
-    anything else is verified as an embedded label with
-    :func:`verify_embedded`.
+    Accepts embedded label text, the raw parsed JSON object, an encrypted
+    URL, or a compact URL. Text that starts with a URL scheme (such as
+    ``wemush:``) is a URL: ``wemush://v1/`` followed by a single path
+    segment (and not ``wemush://v1/encrypted/...``) is verified as a compact
+    URL with :func:`verify_compact_url`, and every other URL as an encrypted
+    URL with :func:`verify_encrypted_url`, so it is ``malformed`` if it
+    carries ``sig``. Anything else is verified as an embedded label with
+    :func:`verify_embedded`. ``web+wemush://`` and handler URLs aren't
+    unwrapped here; see :func:`unwrap_wols_url`.
 
     Only ``SignatureStatus.VALID`` means the label is signed, authentic, and
     unmodified. ``UNSIGNED`` is not a failure of verification but a missing
@@ -656,7 +872,7 @@ def verify_specimen(
 
     Args:
         label: Embedded label text, a raw parsed JSON object, or an
-            encrypted URL, exactly as scanned.
+            encrypted or compact URL, exactly as scanned.
         trust_store: Maps each trusted kid to its key. Build it from sources
             you trust, never from the label.
 
@@ -685,6 +901,8 @@ def verify_specimen(
         except UnicodeDecodeError as e:
             return _malformed(f"label is not valid UTF-8: {e}")
         if _SCHEME_RE.match(text):
+            if is_compact_shape(text):
+                return verify_compact_url(text, trust_store)
             return verify_encrypted_url(text, trust_store)
         return verify_embedded(text, trust_store)
     return verify_embedded(label, trust_store)

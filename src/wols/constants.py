@@ -14,8 +14,12 @@ WOLS_VERSION = "1.4.0"
 # Label versions this library reads without a version warning. 1.4.0 changes
 # no wire format: it adds signatures, which this library verifies, so 1.3.0
 # labels read the same way. 1.3.1 was never released (its release candidate
-# shipped as part of 1.4.0). New labels are written as WOLS_VERSION.
-SUPPORTED_VERSIONS: frozenset[str] = frozenset({"1.3.0", "1.4.0"})
+# shipped as part of 1.4.0). The 1.5.0 release candidates add optional
+# members, which this library reads, writes back and validates. New labels
+# are still written as WOLS_VERSION until 1.5.0 is final.
+SUPPORTED_VERSIONS: frozenset[str] = frozenset(
+    {"1.3.0", "1.4.0", "1.5.0-rc.1", "1.5.0-rc.2"}
+)
 
 # JSON-LD context URL
 WOLS_CONTEXT = "https://wemush.com/wols/v1"

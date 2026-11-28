@@ -28,19 +28,19 @@ class TestParseCompactUrlOrThrow:
         """Verify raises WolsParseError on invalid scheme."""
         with pytest.raises(WolsParseError) as exc_info:
             parse_compact_url_or_throw("invalid://v1/abc123")
-        assert exc_info.value.code == "INVALID_SCHEME"
+        assert exc_info.value.code == "INVALID_URL"
 
     def test_raises_on_missing_version(self) -> None:
         """Verify raises WolsParseError on missing version."""
         with pytest.raises(WolsParseError) as exc_info:
             parse_compact_url_or_throw("wemush://abc123")
-        assert exc_info.value.code == "INVALID_PATH"
+        assert exc_info.value.code == "INVALID_URL"
 
     def test_raises_on_missing_id(self) -> None:
         """Verify raises WolsParseError on missing ID."""
         with pytest.raises(WolsParseError) as exc_info:
             parse_compact_url_or_throw("wemush://v1/")
-        assert exc_info.value.code == "INVALID_PATH"
+        assert exc_info.value.code == "INVALID_URL"
 
     def test_same_behavior_as_parse_compact_url(self) -> None:
         """Verify same behavior as parse_compact_url."""
@@ -118,27 +118,27 @@ class TestConvenienceFunctionsWithStage:
 
     def test_fruiting_stage(self) -> None:
         """Verify FRUITING stage is parsed."""
-        ref = parse_compact_url_or_throw("web+wemush://v1/abc123?st=FRU")
+        ref = parse_compact_url_or_throw("web+wemush://v1/abc123?s=POSTR&st=FRU")
         assert ref.stage == GrowthStage.FRUITING
 
     def test_harvest_stage(self) -> None:
         """Verify HARVEST stage is parsed."""
-        ref = parse_compact_url_or_throw("web+wemush://v1/abc123?st=HAR")
+        ref = parse_compact_url_or_throw("web+wemush://v1/abc123?s=POSTR&st=HAR")
         assert ref.stage == GrowthStage.HARVEST
 
     def test_new_incubation_stage(self) -> None:
         """Verify new INCUBATION stage (v1.2.0) is parsed."""
-        ref = parse_compact_url_or_throw("web+wemush://v1/abc123?st=INC")
+        ref = parse_compact_url_or_throw("web+wemush://v1/abc123?s=POSTR&st=INC")
         assert ref.stage == GrowthStage.INCUBATION
 
     def test_new_primordia_stage(self) -> None:
         """Verify new PRIMORDIA stage (v1.2.0) is parsed."""
-        ref = parse_compact_url_or_throw("web+wemush://v1/abc123?st=PRI")
+        ref = parse_compact_url_or_throw("web+wemush://v1/abc123?s=POSTR&st=PRI")
         assert ref.stage == GrowthStage.PRIMORDIA
 
     def test_new_senescence_stage(self) -> None:
         """Verify new SENESCENCE stage (v1.2.0) is parsed."""
-        ref = parse_compact_url_or_throw("web+wemush://v1/abc123?st=SEN")
+        ref = parse_compact_url_or_throw("web+wemush://v1/abc123?s=POSTR&st=SEN")
         assert ref.stage == GrowthStage.SENESCENCE
 
 
@@ -156,10 +156,16 @@ class TestConvenienceFunctionsParams:
 
     def test_missing_optional_params(self) -> None:
         """Verify missing optional params don't cause issues."""
-        ref = parse_compact_url_or_throw("web+wemush://v1/abc123")
+        ref = parse_compact_url_or_throw("web+wemush://v1/abc123?s=POSTR")
         assert ref.id == "abc123"
-        assert ref.species_code is None
+        assert ref.species_code == "POSTR"
         assert ref.stage is None
+
+    def test_missing_species_raises(self) -> None:
+        """WOLS 1.5.0-rc.2: ``s`` is the one required parameter."""
+        with pytest.raises(WolsParseError) as exc_info:
+            parse_compact_url_or_throw("web+wemush://v1/abc123")
+        assert exc_info.value.code == "MISSING_PARAMETER"
 
 
 class TestOrNoneVsOrThrowBehavior:
