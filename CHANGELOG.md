@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **WOLS 1.5.0-rc.2: compact URLs use the Species Code Registry.** `to_compact_url()`
+  writes the registered code for `s` (for example `s=POSTR` for *Pleurotus
+  ostreatus*), the same codes the TypeScript library writes. `SPECIES_CODES` is
+  now the registry, so labels printed by either library scan the same way. A
+  species without a registered code is written as its percent-encoded name
+  instead of raising `WolsValidationError`.
+
+### Added
+
+- **Old labels still scan.** The two-letter codes earlier releases wrote (such
+  as `s=PO`) are kept in `LEGACY_SPECIES_CODES`. Parsing reads them with a
+  `WolsWarning`, and nothing writes them any more.
+- `SpecimenRef.species` holds the scientific name resolved from `s`, and
+  `resolve_species()` does that lookup on its own: a registered code, then a
+  legacy code, then the value as the species name.
+- The `st` parameter also accepts full stage names such as `COLONIZATION`.
+
 ## [1.5.0rc1] - 2026-11-27
 
 Pre-release (PEP 440 spelling of 1.5.0-rc.1). It still implements WOLS 1.4.0
