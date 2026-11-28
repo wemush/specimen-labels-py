@@ -32,15 +32,15 @@ vector files are byte-identical to the `02079df` copies.
 
 Four files target the 1.5 release candidates. They come from open-standard
 branch `spec/1.5.0-rc.2` at commit
-`d40dc7b674a4078241b8d2819d2871d42be0fbbc`, the head of draft PRs #40
+`df724c4ba6534e7f25e41f0ee439a4a635b2ed63`, the head of draft PRs #40
 (`1.5.0-rc.1`) and #41 (`1.5.0-rc.2`). Neither PR is merged yet, so these
 copies must be refreshed from `main` once they are.
 
 | File | `wolsVersion` | Cases |
 | ---- | ------------- | ----- |
-| `data-model.json` | `1.5.0-rc.1` | 30 `validate` and 4 `roundtrip` (`MUST`); 1 `roundtrip` (`SHOULD`) |
-| `bundle.json` | `1.5.0-rc.1` | 8 `validateBundle` (`MUST`) |
-| `compact.json` | `1.5.0-rc.2` | 36 `parseCompact` (`MUST`); 1 `parseCompact` (`SHOULD`) |
+| `data-model.json` | `1.5.0-rc.2` | 38 `validate` and 5 `roundtrip` (`MUST`); 1 `roundtrip` (`SHOULD`) |
+| `bundle.json` | `1.5.0-rc.2` | 12 `validateBundle` (`MUST`) |
+| `compact.json` | `1.5.0-rc.2` | 42 `parseCompact` (`MUST`); 1 `parseCompact` (`SHOULD`) |
 | `compact-signatures.json` | `1.5.0-rc.2` | 36 `verify` and 18 `sign` (`MUST`); 6 `unwrap` (`SHOULD`) |
 
 The six older files are byte-identical at that commit, and `SHA256SUMS`

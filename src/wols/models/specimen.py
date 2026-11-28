@@ -131,6 +131,20 @@ def meta_from_wire(meta: dict[str, Any]) -> SpecimenMeta:
     return result  # type: ignore[return-value]
 
 
+def shadowed_meta(meta: dict[str, Any]) -> dict[str, Any]:
+    """Return the snake_case ``_meta`` members that have a camelCase twin.
+
+    When a label has both spellings of a key, the camelCase value is used and
+    the snake_case member is kept unchanged (WOLS 1.5.0-rc.2), so neither
+    value is lost.
+    """
+    return {
+        key: value
+        for key, value in meta.items()
+        if key in _META_WIRE_KEYS and _META_WIRE_KEYS[key] in meta
+    }
+
+
 def is_non_negative_int(value: object) -> bool:
     """Return True if value is a non-negative int (bool is rejected)."""
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
@@ -354,6 +368,12 @@ class Specimen:
     _created_text: str | None = field(
         default=None, init=False, repr=False, compare=False
     )
+    # snake_case ``_meta`` members that a camelCase member of the same key
+    # overrode on parse, written back unchanged (WOLS 1.5.0-rc.2). Not copied
+    # by replace().
+    _meta_shadowed: dict[str, Any] | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dictionary with JSON-LD context."""
@@ -400,6 +420,8 @@ class Specimen:
             result["signature"] = self.signature
         if self._meta is not None:
             result["_meta"] = meta_to_wire(self._meta)
+            if self._meta_shadowed:
+                result["_meta"].update(self._meta_shadowed)
         if self.unknown_members is not None:
             for key, value in self.unknown_members.items():
                 if key in result:
@@ -451,8 +473,10 @@ class Specimen:
         # keys are read in camelCase or snake_case (WOLS 1.5).
         meta_value = data.get("_meta")
         meta: SpecimenMeta | None = None
+        meta_shadowed: dict[str, Any] = {}
         if meta_value is not None and isinstance(meta_value, dict):
             meta = meta_from_wire(meta_value)
+            meta_shadowed = shadowed_meta(meta_value)
 
         # WOLS 1.5: keep unknown top-level members for re-serialization.
         unknown = {k: v for k, v in data.items() if k not in SPECIMEN_FIELDS}
@@ -481,6 +505,8 @@ class Specimen:
         )
         if created_text is not None:
             object.__setattr__(specimen, "_created_text", created_text)
+        if meta_shadowed:
+            object.__setattr__(specimen, "_meta_shadowed", meta_shadowed)
         return specimen
 
 

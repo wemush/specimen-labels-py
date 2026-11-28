@@ -79,8 +79,8 @@ VECTOR_FILES = (
 # leaves unchanged.
 VECTOR_VERSIONS = {
     "signatures": "1.4.0",
-    "data-model": "1.5.0-rc.1",
-    "bundle": "1.5.0-rc.1",
+    "data-model": "1.5.0-rc.2",
+    "bundle": "1.5.0-rc.2",
     "compact": "1.5.0-rc.2",
     "compact-signatures": "1.5.0-rc.2",
 }

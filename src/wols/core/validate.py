@@ -148,14 +148,14 @@ def validate_specimen(
     the rule that ``strain.lineage`` equals ``derivedFrom[0].id``. Error
     paths are dot paths, such as ``derivedFrom.0.id``.
 
-    Where the 1.5 JSON Schema is stricter than earlier versions about a
-    member that 1.4 labels already used (an empty ``batch``, a ``lineage``
-    that isn't a specimen ID, a ``created`` without a time zone), the problem
-    is reported as a warning, so that existing labels stay valid.
+    Some 1.4 values stay valid with a warning (an empty ``batch``, a
+    ``lineage`` that isn't a specimen ID). ``created`` MUST be an RFC 3339
+    date-time with a time zone (WOLS 1.5.0-rc.2); anything else is an error.
 
     Fields replaced by field-level encryption objects
     (``{"encrypted": true, ...}``) are accepted without inspecting their
-    plaintext.
+    plaintext. ``@context``, ``@type``, ``id``, ``version``, ``type``,
+    ``species`` and ``signature`` may not be encrypted.
 
     Args:
         specimen: Specimen object or dictionary to validate.
@@ -430,7 +430,7 @@ def _check_label(
 
     # Optional field: created
     if isinstance(data.get("created"), str) and not is_rfc3339(data["created"]):
-        warnings.append(
+        errors.append(
             ValidationError(
                 path="created",
                 code="INVALID_VALUE",
@@ -442,6 +442,7 @@ def _check_label(
         "created" in data
         and data["created"] is not None
         and not isinstance(data["created"], str)
+        and not _is_encrypted_field(data["created"])
     ):
         errors.append(
             ValidationError(

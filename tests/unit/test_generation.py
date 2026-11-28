@@ -141,3 +141,9 @@ class TestGenerationFormatEnum:
         """Verify GenerationFormat is a string enum."""
         assert isinstance(GenerationFormat.PRESERVE, str)
         assert GenerationFormat.PRESERVE == "preserve"
+
+
+def test_parental_number_and_lowercase_are_valid() -> None:
+    """WOLS 1.5.0-rc.2: P{n} is accepted, and letters are read in either case."""
+    for value in ("P2", "p3", "f2", "g1"):
+        assert is_valid_generation(value)

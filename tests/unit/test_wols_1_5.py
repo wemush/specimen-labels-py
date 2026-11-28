@@ -176,10 +176,10 @@ class TestValidateLabel:
         assert _codes(result.errors) == {"version": "INVALID_VERSION"}
 
     @pytest.mark.parametrize("created", ["2026-11-10T09:00:00", "2026-11-10", "x"])
-    def test_created_without_a_time_zone_is_a_warning(self, created: str) -> None:
+    def test_created_without_a_time_zone_is_an_error(self, created: str) -> None:
+        # WOLS 1.5.0-rc.2: created MUST be an RFC 3339 date-time.
         result = validate_specimen({**LABEL, "created": created})
-        assert result.valid
-        assert _codes(result.warnings) == {"created": "INVALID_VALUE"}
+        assert _codes(result.errors) == {"created": "INVALID_VALUE"}
 
     @pytest.mark.parametrize("field", ["batch", "organization", "creator"])
     def test_empty_string_member_is_a_warning(self, field: str) -> None:

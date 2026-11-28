@@ -131,7 +131,11 @@ class TestMetaWireCase:
         wire = {"source_id": "old", "sourceId": "new"}
         specimen = parse_specimen(json.dumps({**BASE, "_meta": wire}))
         assert specimen._meta == {"source_id": "new"}
-        assert json.loads(to_json(specimen))["_meta"] == {"sourceId": "new"}
+        # WOLS 1.5.0-rc.2: the snake_case member is kept unchanged.
+        assert json.loads(to_json(specimen))["_meta"] == {
+            "sourceId": "new",
+            "source_id": "old",
+        }
 
     def test_every_standard_key_is_renamed(self) -> None:
         specimen = Specimen(

@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 Passes every case in the WOLS 1.5 release-candidate conformance vectors
-(open-standard branch `spec/1.5.0-rc.2`, draft PRs #40 and #41):
+(open-standard branch `spec/1.5.0-rc.2` at `df724c4`, draft PRs #40 and #41):
 `data-model.json`, `bundle.json`, `compact.json` and
 `compact-signatures.json`, `MUST` and `SHOULD` alike. New labels are still
 written as `1.4.0`.
@@ -55,10 +55,16 @@ written as `1.4.0`.
   those versions validate without a version warning.
 - `validate_specimen` reports a `version` that isn't `MAJOR.MINOR.PATCH`
   (with an optional pre-release suffix) as an error, and a missing `version`
-  as a warning. It warns, rather than fails, where the 1.5 schema is stricter
-  about older members: an empty `batch`, `organization` or `creator`, a
-  `created` without a time zone, a `strain.lineage` that isn't a specimen ID,
-  and a non-string `strain.source`.
+  as a warning. It warns, rather than fails, about older values the 1.5 rules
+  still allow: an empty `batch`, `organization` or `creator`, a
+  `strain.lineage` that isn't a specimen ID, and a non-string `strain.source`.
+- **Breaking:** `validate_specimen` reports a `created` that isn't an RFC 3339
+  date-time with a time zone (such as `2026-11-10`) as an error, as WOLS
+  1.5.0-rc.2 requires. 1.4.0 accepted it, and 1.5.0rc1 warned. An encrypted
+  `created` is accepted.
+- `strain.generation` accepts `P{n}` (such as `P2`) as well as `P` and `P1`.
+- When a label's `_meta` has both spellings of a key, the camelCase value is
+  read and the snake_case member is written back unchanged.
 - `verify_specimen` now verifies signed compact URLs. Before, a
   `wemush://v1/{id}?...&sig=` URL was reported as `malformed`.
 - `VerificationResult` has three new fields: `form` (`embedded`,
