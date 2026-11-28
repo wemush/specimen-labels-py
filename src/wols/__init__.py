@@ -28,6 +28,7 @@ from wols.core.parse import (
     parse_compact_url_or_none,
     parse_compact_url_or_throw,
     parse_specimen,
+    resolve_species,
 )
 from wols.core.serialize import to_compact_url, to_json
 from wols.core.validate import (
@@ -154,6 +155,7 @@ __all__ = [
     "parse_specimen",
     "register_migration",
     "register_type_alias",
+    "resolve_species",
     "resolve_type_alias",
     "supports_typing_extensions",
     "to_compact_url",

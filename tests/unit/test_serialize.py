@@ -2,17 +2,16 @@
 
 import json
 
-import pytest
-
 from wols import (
     GrowthStage,
     Specimen,
     SpecimenType,
     UrlScheme,
-    WolsValidationError,
+    parse_compact_url,
     to_compact_url,
     to_json,
 )
+from wols.constants import LEGACY_SPECIES_CODES, SPECIES_NAMES
 
 
 class TestToJson:
@@ -58,7 +57,7 @@ class TestToCompactUrl:
         url = to_compact_url(specimen)
         assert url.startswith("web+wemush://v1/")
         assert "abc123def456ghijklmnopqr" in url
-        assert "s=PO" in url
+        assert "s=POSTR" in url
         assert "st=COL" in url
 
     def test_compact_url_wemush_scheme(self) -> None:
@@ -73,7 +72,7 @@ class TestToCompactUrl:
         url = to_compact_url(specimen, scheme=UrlScheme.WEMUSH)
         assert url.startswith("wemush://v1/")
         assert "abc123def456ghijklmnopqr" in url
-        assert "s=PO" in url
+        assert "s=POSTR" in url
 
     def test_compact_url_web_wemush_scheme(self) -> None:
         """Test compact URL with PWA-compatible web+wemush scheme."""
@@ -126,13 +125,27 @@ class TestToCompactUrl:
         url = to_compact_url(specimen, scheme="wemush")
         assert url.startswith("wemush://v1/")
 
-    def test_unknown_species_raises(self) -> None:
-        """Test that unknown species raises validation error."""
+    def test_unregistered_species_written_as_name(self) -> None:
+        """A species without a registered code is written as its name (WOLS 1.5)."""
         specimen = Specimen(
             id="wemush:abc123def456ghijklmnopqr",
             version="1.1.0",
             type=SpecimenType.CULTURE,
-            species="Unknown species",
+            species="Morchella importuna",
         )
-        with pytest.raises(WolsValidationError):
-            to_compact_url(specimen)
+        url = to_compact_url(specimen)
+        assert "s=Morchella%20importuna" in url
+        assert parse_compact_url(url).species == "Morchella importuna"
+
+    def test_registered_codes_never_legacy(self) -> None:
+        """Generators write the registered code, never a legacy two-letter code."""
+        for name, code in SPECIES_NAMES.items():
+            specimen = Specimen(
+                id="wemush:abc123def456ghijklmnopqr",
+                version="1.1.0",
+                type=SpecimenType.CULTURE,
+                species=name,
+            )
+            url = to_compact_url(specimen)
+            assert f"s={code}" in url
+            assert code not in LEGACY_SPECIES_CODES

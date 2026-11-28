@@ -303,9 +303,9 @@ class TestCompactUrlDecoding:
 
     @pytest.mark.parametrize("scheme", ["wemush", "web+wemush", "WEMUSH", "Web+Wemush"])
     def test_schemes_accepted(self, scheme: str) -> None:
-        ref = parse_compact_url(f"{scheme}://v1/clx1a2b3c4?s=PO&st=COL")
+        ref = parse_compact_url(f"{scheme}://v1/clx1a2b3c4?s=POSTR&st=COL")
         assert ref.id == "clx1a2b3c4"
-        assert ref.species_code == "PO"
+        assert ref.species_code == "POSTR"
         assert ref.stage == GrowthStage.COLONIZATION
 
     def test_spec_example(self) -> None:

@@ -100,7 +100,8 @@ class TestCompactUrlRoundTrip:
         # Verify reference contains expected data
         assert isinstance(ref, SpecimenRef)
         assert original.id.endswith(ref.id)
-        assert ref.species_code == "PO"
+        assert ref.species_code == "POSTR"
+        assert ref.species == "Pleurotus ostreatus"
         assert ref.stage == GrowthStage.COLONIZATION
 
 
@@ -148,7 +149,7 @@ class TestQrRoundTrip:
 
         assert isinstance(scanned, SpecimenRef)
         assert original.id.endswith(scanned.id)
-        assert scanned.species_code == "PO"
+        assert scanned.species_code == "POSTR"
 
 
 class TestCryptoRoundTrip:

@@ -50,9 +50,43 @@ DEFAULT_HTTPS_BASE_URL = "https://wemush.com/s"
 # All valid URL schemes for parsing (we accept any of these)
 VALID_URL_SCHEMES = frozenset({"wemush", "web+wemush", "https"})
 
-# Species codes for compact URL format
-# Maps 2-letter codes to full scientific names
+# Species codes for compact URL format: the WOLS 1.5 Species Code Registry
+# (registries/species-codes.json in wemush/open-standard). The registry is
+# append-only, so a code never changes meaning. Generators write these codes.
 SPECIES_CODES: dict[str, str] = {
+    "POSTR": "Pleurotus ostreatus",
+    "PCITRI": "Pleurotus citrinopileatus",
+    "PDJAR": "Pleurotus djamor",
+    "PERYN": "Pleurotus eryngii",
+    "HERIN": "Hericium erinaceus",
+    "GLUCI": "Ganoderma lucidum",
+    "LPUDE": "Laetiporus pudens",
+    "LLENC": "Lentinula edodes",
+    "APOLY": "Agrocybe polyphylla",
+    "STRUG": "Stropharia rugosoannulata",
+    "PPULM": "Pleurotus pulmonarius",
+    "GAPPL": "Ganoderma applanatum",
+    "HCORA": "Hericium coralloides",
+    "FVELU": "Flammulina velutipes",
+    "ABISP": "Agaricus bisporus",
+    "AARVE": "Agaricus arvensis",
+    "PCUBE": "Psilocybe cubensis",
+    "CMILI": "Cordyceps militaris",
+    "TVERS": "Trametes versicolor",
+    "GFRON": "Grifola frondosa",
+    "LSULP": "Laetiporus sulphureus",
+    "CAEGE": "Cyclocybe aegerita",
+    "PNAME": "Pholiota nameko",
+    "HTESS": "Hypsizygus tessellatus",
+    "CCOMA": "Coprinus comatus",
+    "AMELL": "Armillaria mellea",
+    "MESCU": "Morchella esculenta",
+}
+
+# Two-letter codes that wols releases before 1.5 wrote. WOLS 1.5 keeps them as
+# legacy codes: decoders still read them (with a warning), generators never
+# write them, and the table is frozen.
+LEGACY_SPECIES_CODES: dict[str, str] = {
     "PO": "Pleurotus ostreatus",
     "PE": "Pleurotus eryngii",
     "PC": "Pleurotus citrinopileatus",
@@ -79,7 +113,7 @@ SPECIES_CODES: dict[str, str] = {
     "MO": "Morchella esculenta",
 }
 
-# Reverse mapping: scientific name to code
+# Reverse mapping: scientific name to registered code
 SPECIES_NAMES: dict[str, str] = {v: k for k, v in SPECIES_CODES.items()}
 
 # Stage codes for compact URL format (v1.2.0 - 7 stages)

@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import contextlib
 import json
+import warnings
 from urllib.parse import parse_qs, urlparse
 
-from wols.constants import STAGE_CODES, VALID_URL_SCHEMES
-from wols.exceptions import WolsParseError
+from wols.constants import (
+    LEGACY_SPECIES_CODES,
+    SPECIES_CODES,
+    STAGE_CODES,
+    VALID_URL_SCHEMES,
+)
+from wols.exceptions import WolsParseError, WolsWarning
 from wols.models.enums import GrowthStage
 from wols.models.specimen import Specimen, SpecimenRef
 
@@ -84,13 +90,15 @@ def parse_compact_url(url: str) -> SpecimenRef:
         WolsParseError: If URL format is invalid.
 
     Example:
-        >>> ref = parse_compact_url("web+wemush://v1/abc123?s=PO&st=COL")
+        >>> ref = parse_compact_url("web+wemush://v1/abc123?s=POSTR&st=COL")
         >>> print(ref.id)
         'abc123'
         >>> print(ref.species_code)
-        'PO'
+        'POSTR'
+        >>> print(ref.species)
+        'Pleurotus ostreatus'
 
-        >>> ref = parse_compact_url("https://wemush.com/s/v1/abc123?s=PO")
+        >>> ref = parse_compact_url("https://wemush.com/s/v1/abc123?s=POSTR")
         >>> print(ref.id)
         'abc123'
     """
@@ -156,24 +164,54 @@ def parse_compact_url(url: str) -> SpecimenRef:
         # Flatten single-value lists (always take first value)
         query_params = {k: v[0] for k, v in raw_params.items()}
 
-    # Extract species code
+    # Extract species code, and resolve it as WOLS 1.5 decodes `s`: a
+    # registered code, then a legacy two-letter code, then the name as written.
     species_code = query_params.get("s")
+    species = resolve_species(species_code, stacklevel=3) if species_code else None
 
-    # Extract and convert stage
+    # Extract and convert stage: a three-letter code or a full stage name
     stage: GrowthStage | None = None
     stage_code = query_params.get("st")
     if stage_code:
-        stage_value = STAGE_CODES.get(stage_code.upper())
-        if stage_value:
-            with contextlib.suppress(ValueError):
-                stage = GrowthStage(stage_value)
+        stage_value = STAGE_CODES.get(stage_code.upper(), stage_code.upper())
+        with contextlib.suppress(ValueError):
+            stage = GrowthStage(stage_value)
 
     return SpecimenRef(
         id=specimen_id,
         species_code=species_code,
         stage=stage,
         params=query_params,
+        species=species,
     )
+
+
+def resolve_species(value: str, *, stacklevel: int = 2) -> str:
+    """Resolve a compact URL ``s`` value to a scientific name.
+
+    Follows the WOLS 1.5 Species Code Registry: a registered code gives its
+    species; a legacy two-letter code (written by wols before 1.5) gives its
+    species with a :class:`~wols.exceptions.WolsWarning`; anything else is
+    taken as the species name as written.
+
+    Example:
+        >>> resolve_species("POSTR")
+        'Pleurotus ostreatus'
+        >>> resolve_species("Morchella importuna")
+        'Morchella importuna'
+    """
+    if value in SPECIES_CODES:
+        return SPECIES_CODES[value]
+    if value in LEGACY_SPECIES_CODES:
+        warnings.warn(
+            f"Species code {value!r} is a legacy code; read as "
+            f"{LEGACY_SPECIES_CODES[value]!r}. WOLS 1.5 generators write the "
+            "registered five-letter code instead.",
+            WolsWarning,
+            stacklevel=stacklevel + 1,
+        )
+        return LEGACY_SPECIES_CODES[value]
+    return value
 
 
 def parse_compact_url_or_throw(url: str) -> SpecimenRef:
@@ -192,7 +230,7 @@ def parse_compact_url_or_throw(url: str) -> SpecimenRef:
         WolsParseError: If parsing fails.
 
     Example:
-        >>> ref = parse_compact_url_or_throw("web+wemush://v1/abc123?s=PO")
+        >>> ref = parse_compact_url_or_throw("web+wemush://v1/abc123?s=POSTR")
         >>> print(ref.id)
         'abc123'
     """
@@ -209,7 +247,7 @@ def parse_compact_url_or_none(url: str) -> SpecimenRef | None:
         Parsed SpecimenRef or None if parsing failed.
 
     Example:
-        >>> ref = parse_compact_url_or_none("web+wemush://v1/abc123?s=PO")
+        >>> ref = parse_compact_url_or_none("web+wemush://v1/abc123?s=POSTR")
         >>> print(ref.id if ref else "Failed")
         'abc123'
         >>> ref = parse_compact_url_or_none("invalid://url")

@@ -11,6 +11,7 @@ from wols import (
     WolsWarning,
     parse_compact_url,
     parse_specimen,
+    resolve_species,
 )
 
 
@@ -76,33 +77,33 @@ class TestParseCompactUrl:
 
     def test_parse_wemush_url(self) -> None:
         """Test parsing native wemush:// URL."""
-        ref = parse_compact_url("wemush://v1/abc123?s=PO&st=COL")
+        ref = parse_compact_url("wemush://v1/abc123?s=POSTR&st=COL")
         assert isinstance(ref, SpecimenRef)
         assert ref.id == "abc123"
-        assert ref.species_code == "PO"
+        assert ref.species_code == "POSTR"
         assert ref.stage == GrowthStage.COLONIZATION
 
     def test_parse_web_wemush_url(self) -> None:
         """Test parsing PWA-compatible web+wemush:// URL."""
-        ref = parse_compact_url("web+wemush://v1/abc123?s=PO&st=COL")
+        ref = parse_compact_url("web+wemush://v1/abc123?s=POSTR&st=COL")
         assert isinstance(ref, SpecimenRef)
         assert ref.id == "abc123"
-        assert ref.species_code == "PO"
+        assert ref.species_code == "POSTR"
         assert ref.stage == GrowthStage.COLONIZATION
 
     def test_parse_https_url(self) -> None:
         """Test parsing HTTPS URL."""
-        ref = parse_compact_url("https://wemush.com/s/v1/abc123?s=PO&st=COL")
+        ref = parse_compact_url("https://wemush.com/s/v1/abc123?s=POSTR&st=COL")
         assert isinstance(ref, SpecimenRef)
         assert ref.id == "abc123"
-        assert ref.species_code == "PO"
+        assert ref.species_code == "POSTR"
         assert ref.stage == GrowthStage.COLONIZATION
 
     def test_parse_https_url_custom_base(self) -> None:
         """Test parsing HTTPS URL with custom base path."""
-        ref = parse_compact_url("https://example.com/specimens/v1/abc123?s=HE")
+        ref = parse_compact_url("https://example.com/specimens/v1/abc123?s=HERIN")
         assert ref.id == "abc123"
-        assert ref.species_code == "HE"
+        assert ref.species_code == "HERIN"
 
     def test_parse_url_without_query(self) -> None:
         """Test parsing URL without query parameters."""
@@ -127,3 +128,48 @@ class TestParseCompactUrl:
         with pytest.raises(WolsParseError) as exc_info:
             parse_compact_url("wemush://abc123")
         assert "INVALID_PATH" in str(exc_info.value)
+
+
+class TestSpeciesCodeRegistry:
+    """Compact URL species codes follow the WOLS 1.5 Species Code Registry."""
+
+    def test_registered_code_resolves(self) -> None:
+        ref = parse_compact_url("wemush://v1/abc123?s=POSTR")
+        assert ref.species_code == "POSTR"
+        assert ref.species == "Pleurotus ostreatus"
+
+    def test_legacy_code_still_reads_with_warning(self) -> None:
+        """Labels printed by wols before 1.5 still scan."""
+        with pytest.warns(WolsWarning, match="legacy code"):
+            ref = parse_compact_url("wemush://v1/abc123?s=PO&st=COL")
+        assert ref.species_code == "PO"
+        assert ref.species == "Pleurotus ostreatus"
+        assert ref.stage == GrowthStage.COLONIZATION
+
+    def test_unregistered_value_is_species_name(self) -> None:
+        ref = parse_compact_url("wemush://v1/abc123?s=Morchella%20importuna")
+        assert ref.species_code == "Morchella importuna"
+        assert ref.species == "Morchella importuna"
+
+    def test_no_species(self) -> None:
+        ref = parse_compact_url("wemush://v1/abc123")
+        assert ref.species is None
+
+    def test_resolve_species(self) -> None:
+        assert resolve_species("LLENC") == "Lentinula edodes"
+        assert resolve_species("Morchella importuna") == "Morchella importuna"
+        with pytest.warns(WolsWarning):
+            assert resolve_species("LE") == "Lentinula edodes"
+
+    def test_codes_are_case_sensitive(self) -> None:
+        """Codes are upper case; anything else is a name as written."""
+        assert resolve_species("postr") == "postr"
+
+    def test_full_stage_name_parses(self) -> None:
+        ref = parse_compact_url("wemush://v1/abc123?st=COLONIZATION")
+        assert ref.stage == GrowthStage.COLONIZATION
+
+    def test_unknown_stage_is_none(self) -> None:
+        ref = parse_compact_url("wemush://v1/abc123?st=NOPE")
+        assert ref.stage is None
+        assert ref.params["st"] == "NOPE"

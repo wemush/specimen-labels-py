@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import quote
 
 from wols.constants import (
     DEFAULT_HTTPS_BASE_URL,
@@ -12,9 +13,7 @@ from wols.constants import (
     STAGE_NAMES,
     UrlScheme,
 )
-from wols.exceptions import WolsValidationError
 from wols.models.specimen import Specimen
-from wols.models.validation import ValidationError
 
 
 def to_json(
@@ -68,21 +67,22 @@ def to_compact_url(
     Returns:
         Compact URL string.
 
-    Raises:
-        WolsValidationError: If species has no registered code.
+    ``s`` is the species' code from the WOLS 1.5 Species Code Registry
+    (:data:`~wols.constants.SPECIES_CODES`). A species without a registered
+    code is written by its full scientific name, percent-encoded.
 
     Example:
         >>> url = to_compact_url(specimen)
         >>> print(url)
-        'web+wemush://v1/clx1abc123?s=PO&st=COL'
+        'web+wemush://v1/clx1abc123?s=POSTR&st=COL'
 
         >>> url = to_compact_url(specimen, scheme=UrlScheme.HTTPS)
         >>> print(url)
-        'https://wemush.com/s/v1/clx1abc123?s=PO&st=COL'
+        'https://wemush.com/s/v1/clx1abc123?s=POSTR&st=COL'
 
         >>> url = to_compact_url(specimen, scheme="wemush")
         >>> print(url)
-        'wemush://v1/clx1abc123?s=PO&st=COL'
+        'wemush://v1/clx1abc123?s=POSTR&st=COL'
     """
     # Normalize scheme to UrlScheme enum
     if isinstance(scheme, str):
@@ -96,23 +96,9 @@ def to_compact_url(
     # Build query parameters
     params: list[str] = []
 
-    # Get species code
+    # The registered code, or the full species name when it has none (WOLS 1.5)
     species_code = SPECIES_NAMES.get(specimen.species)
-    if species_code:
-        params.append(f"s={species_code}")
-    else:
-        # Raise if species doesn't have a registered code
-        raise WolsValidationError(
-            message=f"Species '{specimen.species}' "
-            "has no registered code for compact URL",
-            errors=[
-                ValidationError(
-                    path="species",
-                    code="INVALID_VALUE",
-                    message=f"No species code registered for '{specimen.species}'",
-                )
-            ],
-        )
+    params.append(f"s={species_code or quote(specimen.species, safe='')}")
 
     # Get stage code
     if include_stage and specimen.stage is not None:

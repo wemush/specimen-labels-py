@@ -19,10 +19,10 @@ class TestParseCompactUrlOrThrow:
 
     def test_valid_url_returns_specimen_ref(self) -> None:
         """Verify valid URL returns SpecimenRef."""
-        ref = parse_compact_url_or_throw("web+wemush://v1/abc123?s=PO")
+        ref = parse_compact_url_or_throw("web+wemush://v1/abc123?s=POSTR")
         assert isinstance(ref, SpecimenRef)
         assert ref.id == "abc123"
-        assert ref.species_code == "PO"
+        assert ref.species_code == "POSTR"
 
     def test_raises_on_invalid_scheme(self) -> None:
         """Verify raises WolsParseError on invalid scheme."""
@@ -44,7 +44,7 @@ class TestParseCompactUrlOrThrow:
 
     def test_same_behavior_as_parse_compact_url(self) -> None:
         """Verify same behavior as parse_compact_url."""
-        url = "web+wemush://v1/test123?s=HE&st=FRU"
+        url = "web+wemush://v1/test123?s=HERIN&st=FRU"
 
         ref1 = parse_compact_url(url)
         ref2 = parse_compact_url_or_throw(url)
@@ -59,11 +59,11 @@ class TestParseCompactUrlOrNone:
 
     def test_valid_url_returns_specimen_ref(self) -> None:
         """Verify valid URL returns SpecimenRef."""
-        ref = parse_compact_url_or_none("web+wemush://v1/abc123?s=PO")
+        ref = parse_compact_url_or_none("web+wemush://v1/abc123?s=POSTR")
         assert ref is not None
         assert isinstance(ref, SpecimenRef)
         assert ref.id == "abc123"
-        assert ref.species_code == "PO"
+        assert ref.species_code == "POSTR"
 
     def test_invalid_scheme_returns_none(self) -> None:
         """Verify invalid scheme returns None instead of raising."""
@@ -91,19 +91,19 @@ class TestConvenienceFunctionsWithSchemes:
 
     def test_wemush_scheme(self) -> None:
         """Verify wemush:// scheme works."""
-        ref = parse_compact_url_or_none("wemush://v1/native123?s=PO")
+        ref = parse_compact_url_or_none("wemush://v1/native123?s=POSTR")
         assert ref is not None
         assert ref.id == "native123"
 
     def test_web_plus_wemush_scheme(self) -> None:
         """Verify web+wemush:// scheme works."""
-        ref = parse_compact_url_or_none("web+wemush://v1/pwa123?s=LE")
+        ref = parse_compact_url_or_none("web+wemush://v1/pwa123?s=LLENC")
         assert ref is not None
         assert ref.id == "pwa123"
 
     def test_https_scheme(self) -> None:
         """Verify https:// scheme works."""
-        ref = parse_compact_url_or_none("https://wemush.com/s/v1/web123?s=GL")
+        ref = parse_compact_url_or_none("https://wemush.com/s/v1/web123?s=GLUCI")
         assert ref is not None
         assert ref.id == "web123"
 
@@ -113,7 +113,7 @@ class TestConvenienceFunctionsWithStage:
 
     def test_stage_code_parsed(self) -> None:
         """Verify stage code is parsed correctly."""
-        ref = parse_compact_url_or_throw("web+wemush://v1/abc123?s=PO&st=COL")
+        ref = parse_compact_url_or_throw("web+wemush://v1/abc123?s=POSTR&st=COL")
         assert ref.stage == GrowthStage.COLONIZATION
 
     def test_fruiting_stage(self) -> None:
@@ -148,9 +148,9 @@ class TestConvenienceFunctionsParams:
     def test_all_params_captured(self) -> None:
         """Verify all query params are captured."""
         ref = parse_compact_url_or_throw(
-            "web+wemush://v1/abc123?s=PO&st=COL&custom=value"
+            "web+wemush://v1/abc123?s=POSTR&st=COL&custom=value"
         )
-        assert ref.params["s"] == "PO"
+        assert ref.params["s"] == "POSTR"
         assert ref.params["st"] == "COL"
         assert ref.params["custom"] == "value"
 
@@ -167,7 +167,7 @@ class TestOrNoneVsOrThrowBehavior:
 
     def test_both_succeed_on_valid(self) -> None:
         """Verify both functions succeed on valid input."""
-        url = "web+wemush://v1/valid123?s=PO"
+        url = "web+wemush://v1/valid123?s=POSTR"
 
         ref_throw = parse_compact_url_or_throw(url)
         ref_none = parse_compact_url_or_none(url)

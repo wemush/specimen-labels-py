@@ -366,12 +366,16 @@ class SpecimenRef:
 
     Attributes:
         id: Specimen ID (without wemush: prefix).
-        species_code: Species code from URL (e.g., "PO").
+        species_code: The ``s`` value as written in the URL (e.g., "POSTR").
         stage: Stage from URL.
         params: All URL query parameters.
+        species: Scientific name that ``s`` resolves to under the WOLS 1.5
+            Species Code Registry (registered code, legacy code, or the
+            name as written).
     """
 
     id: str
     species_code: str | None = None
     stage: GrowthStage | None = None
     params: dict[str, str] = field(default_factory=dict)
+    species: str | None = None
